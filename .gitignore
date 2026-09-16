@@ -5,9 +5,12 @@ release/
 server/.env
 server/data/
 server/auth-qr*.png
+server/*auth*.png
+server/reauth-*.png
 server/*-diagnostic.log
 server/shared-lan.*.log
 *.log
 .tmp-*/
 *.diff
+shared-account-setup-status.txt
 server/node_modules/
