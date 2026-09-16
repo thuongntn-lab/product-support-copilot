@@ -1,0 +1,93 @@
+{
+  "manifest_version": 3,
+  "name": "Product Support Copilot",
+  "version": "0.18.2",
+  "description": "Support Product Support workflows across Customall, Shopify, and live Lark product data.",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "activeTab",
+    "debugger",
+    "downloads",
+    "scripting",
+    "sidePanel",
+    "storage",
+    "tabs",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://*.customall.io/*",
+    "https://admin.shopify.com/*",
+    "https://*.myshopify.com/*",
+    "https://*.teeinblue.com/*",
+    "http://192.168.88.4/*"
+  ],
+  "optional_host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+  "action": {
+    "default_title": "Open Product Support Copilot",
+    "default_icon": {
+      "16": "assets/icon-16.png",
+      "32": "assets/icon-32.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icon-16.png",
+    "32": "assets/icon-32.png",
+    "48": "assets/icon-48.png",
+    "128": "assets/icon-128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.customall.io/*"],
+      "js": ["src/content/customall.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.teeinblue.com/*"],
+      "js": ["src/content/teeinblue.js"],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_origin_as_fallback": true
+    },
+    {
+      "matches": [
+        "https://admin.shopify.com/*",
+        "https://*.myshopify.com/*"
+      ],
+      "js": ["src/content/shopify.js"],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_origin_as_fallback": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/bridge/upload-bridge.html",
+        "src/bridge/upload-bridge.js"
+      ],
+      "matches": [
+        "https://*.customall.io/*",
+        "https://*.teeinblue.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "src/bridge/shopify-upload-bridge.html",
+        "src/bridge/shopify-upload-bridge.js"
+      ],
+      "matches": [
+        "https://admin.shopify.com/*"
+      ]
+    }
+  ]
+}

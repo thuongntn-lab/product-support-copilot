@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Product Support Copilot</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">PRODUCT SUPPORT</p>
+        <h1>PS Copilot</h1>
+      </div>
+      <span id="app-version" class="version"></span>
+    </header>
+
+    <nav class="tabs" aria-label="Modules">
+      <button class="tab active" data-tab="cliparts">MVP1 · Cliparts</button>
+      <button class="tab" data-tab="artwork">MVP2 · Artwork</button>
+      <button class="tab" data-tab="mockups">MVP3 · Mockup Ads</button>
+      <button class="tab" data-tab="lark">MVP4 · Lark Data</button>
+      <button class="tab" data-tab="campaign">MVP5 · Campaign</button>
+      <button class="tab" data-tab="tib">MVP6 · TIB Labels</button>
+      <button class="tab" data-tab="tib-campaign">MVP7 · TIB Campaign</button>
+    </nav>
+
+    <main>
+      <section id="cliparts-panel" class="panel active">
+        <div class="hero-card">
+          <p class="step-label">01 · PREPARE</p>
+          <h2>Kiểm tra folder trước khi upload</h2>
+          <p>Phát hiện lỗi cấu trúc, file quá lớn, ảnh hỏng và tên chưa chuẩn.</p>
+          <label class="primary-button">
+            Chọn folder clipart
+            <input id="clipart-input" type="file" webkitdirectory multiple accept=".png,.jpg,.jpeg" />
+          </label>
+        </div>
+
+        <div id="clipart-empty" class="empty-state">
+          <span class="empty-icon">↳</span>
+          <p>Chưa có folder nào được chọn.</p>
+        </div>
+
+        <div id="clipart-results" class="hidden">
+          <div class="stats-grid">
+            <article><span>Files</span><strong id="stat-files">0</strong></article>
+            <article><span>Valid</span><strong id="stat-valid">0</strong></article>
+            <article class="warning"><span>Warnings</span><strong id="stat-warnings">0</strong></article>
+            <article class="danger"><span>Errors</span><strong id="stat-errors">0</strong></article>
+          </div>
+
+          <div class="summary-line">
+            <div>
+              <strong id="folder-name">—</strong>
+              <span id="folder-size">0 B</span>
+            </div>
+            <span id="analysis-status" class="status-pill">Ready</span>
+          </div>
+
+          <div id="folder-issues" class="issue-list"></div>
+
+          <div class="toolbar">
+            <label class="switch-row">
+              <input id="rename-toggle" type="checkbox" checked />
+              <span>Tự chuẩn hóa tên</span>
+            </label>
+            <label class="switch-row">
+              <input id="thumbnail-toggle" type="checkbox" checked disabled />
+              <span>Customall tự tạo thumbnail</span>
+            </label>
+          </div>
+
+          <details class="batch-editor">
+            <summary>Replace / edit tên hàng loạt</summary>
+            <div class="batch-editor-body">
+              <label>
+                Tìm trong tên
+                <input id="batch-find" type="text" placeholder="Ví dụ: Schnoodle" autocomplete="off" />
+              </label>
+              <label>
+                Thay bằng
+                <input id="batch-replace" type="text" placeholder="Ví dụ: Skin" autocomplete="off" />
+              </label>
+              <div class="batch-editor-actions">
+                <button id="apply-batch-edit" class="secondary-button compact-button" type="button">
+                  Áp dụng tất cả
+                </button>
+                <button id="reset-batch-edit" class="text-button compact-button" type="button" disabled>
+                  Hoàn tác
+                </button>
+              </div>
+              <p id="batch-edit-status" class="muted">Chưa có chỉnh sửa hàng loạt</p>
+            </div>
+          </details>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Output</th>
+                  <th>Size</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="file-table"></tbody>
+            </table>
+          </div>
+
+          <div class="action-stack">
+            <button id="upload-customall" class="primary-button" type="button">Upload to Customall</button>
+            <p id="upload-feedback" class="upload-feedback" role="status"></p>
+            <button id="export-report" class="secondary-button" type="button">Export CSV report</button>
+            <button id="open-customall" class="text-button" type="button">Mở trang Customall Cliparts ↗</button>
+          </div>
+          <div id="upload-progress" class="progress hidden">
+            <div class="progress-track"><span></span></div>
+            <p>Đang chuẩn bị clipart…</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="artwork-panel" class="panel">
+        <div class="context-card">
+          <div>
+            <p class="step-label">CURRENT CONTEXT</p>
+            <strong id="artwork-context-label">Chưa nhận diện trang Customall Artwork</strong>
+          </div>
+          <button id="refresh-artwork-context" class="icon-button" title="Kiểm tra lại trang Artwork">↻</button>
+        </div>
+
+        <div class="form-card">
+          <p class="step-label">01 · CREATE</p>
+          <h2>Tạo artwork nhanh</h2>
+          <label>
+            Artwork title
+            <input id="artwork-title" type="text" placeholder="Tên artwork" autocomplete="off" />
+          </label>
+          <label>
+            Category
+            <input id="artwork-category" type="text" placeholder="Ví dụ: Doormat" autocomplete="off" />
+          </label>
+          <label>
+            Product base
+            <input id="artwork-product-base" type="text" placeholder="Để trống nếu giống Category" autocomplete="off" />
+          </label>
+          <p class="field-note">Tool chọn Printarea size, Product base và PNG. Customall tự lấy Width/Height.</p>
+          <button id="prepare-artwork" class="primary-button" type="button">Mở & điền Add new artwork</button>
+          <p id="artwork-feedback" class="upload-feedback" role="status"></p>
+        </div>
+
+        <div class="form-card artwork-audit-card">
+          <div class="section-heading">
+            <p class="step-label">02 · AUDIT DESIGN</p>
+            <button id="audit-artwork" class="text-button compact" type="button">Kiểm tra</button>
+          </div>
+          <div class="artwork-audit-stats">
+            <article><span>Templates</span><strong id="artwork-template-count">—</strong></article>
+            <article><span>Layers</span><strong id="artwork-layer-count">—</strong></article>
+          </div>
+          <div id="artwork-audit-results" class="issue-list">
+            <p class="muted">Mở một Artwork editor rồi bấm Kiểm tra.</p>
+          </div>
+        </div>
+
+        <div class="form-card artwork-batch-card">
+          <div class="section-heading artwork-batch-heading">
+            <div>
+              <p class="step-label">01 · SELECT LAYERS</p>
+              <h2>Artwork batch editor</h2>
+            </div>
+            <button id="scan-artwork-layers" class="text-button compact" type="button">Quét lại</button>
+          </div>
+
+          <div class="layer-selection-toolbar">
+            <label class="layer-select-all">
+              <input id="select-all-artwork-layers" type="checkbox" />
+              Tất cả
+            </label>
+            <button id="select-text-artwork-layers" class="mini-filter-button" type="button">Chỉ Text</button>
+            <span id="artwork-selection-count" class="selection-count">0 layer</span>
+          </div>
+          <div id="artwork-layer-list" class="artwork-layer-list">
+            <p class="muted">Mở Artwork editor rồi bấm Quét lại.</p>
+          </div>
+
+          <div class="artwork-tool-tabs" role="tablist" aria-label="Batch tools">
+            <button class="artwork-tool-tab active" type="button" data-artwork-tool="transform" role="tab" aria-selected="true">Transform</button>
+            <button class="artwork-tool-tab" type="button" data-artwork-tool="text" role="tab" aria-selected="false">Text style</button>
+            <button class="artwork-tool-tab" type="button" data-artwork-tool="stroke" role="tab" aria-selected="false">Stroke</button>
+            <button class="artwork-tool-tab" type="button" data-artwork-tool="case" role="tab" aria-selected="false">Change case</button>
+            <button class="artwork-tool-tab" type="button" data-artwork-tool="label" role="tab" aria-selected="false">Replace label</button>
+          </div>
+
+          <section class="artwork-tool-panel active" data-artwork-tool-panel="transform">
+            <div class="tool-panel-heading">
+              <div>
+                <span class="tool-kicker">02 · TRANSFORM</span>
+                <h3>Vị trí và kích thước</h3>
+              </div>
+              <span class="tool-scope">Mọi layer</span>
+            </div>
+            <div class="transform-grid">
+              <label>X<input id="bulk-transform-x" type="text" inputmode="decimal" placeholder="Giữ nguyên" /></label>
+              <label>Y<input id="bulk-transform-y" type="text" inputmode="decimal" placeholder="Giữ nguyên" /></label>
+              <label>Width<input id="bulk-transform-width" type="text" inputmode="decimal" placeholder="Giữ nguyên" /></label>
+              <label>Height<input id="bulk-transform-height" type="text" inputmode="decimal" placeholder="Giữ nguyên" /></label>
+              <label>Rotate<input id="bulk-transform-rotate" type="text" inputmode="decimal" placeholder="Giữ nguyên" /></label>
+              <label>Skew<input id="bulk-transform-skew" type="text" inputmode="decimal" placeholder="Giữ nguyên" /></label>
+            </div>
+            <p class="field-note">Chỉ các ô có giá trị mới được thay đổi.</p>
+            <button id="apply-artwork-transform" class="primary-button artwork-apply-button" type="button">Apply Transform</button>
+          </section>
+
+          <section class="artwork-tool-panel" data-artwork-tool-panel="text" hidden>
+            <div class="tool-panel-heading">
+              <div>
+                <span class="tool-kicker">02 · TEXT STYLE</span>
+                <h3>Font, size và màu chữ</h3>
+              </div>
+              <span class="tool-scope">Text layer</span>
+            </div>
+            <div class="text-style-grid">
+              <label>Font
+                <input id="bulk-text-font" type="search" list="customall-font-options" placeholder="Tìm và chọn Font" autocomplete="off" />
+                <datalist id="customall-font-options"></datalist>
+              </label>
+              <label>Max font size<input id="bulk-text-size" type="text" inputmode="decimal" placeholder="Giữ nguyên" /></label>
+              <label class="text-color-field">Color<input id="bulk-text-color" type="text" placeholder="#000000" /></label>
+            </div>
+            <p class="field-note">Image layer được tự động bỏ qua. Ô trống giữ nguyên.</p>
+            <button id="apply-artwork-text-style" class="primary-button artwork-apply-button" type="button">Apply Text Style</button>
+          </section>
+
+          <section class="artwork-tool-panel" data-artwork-tool-panel="stroke" hidden>
+            <div class="tool-panel-heading">
+              <div>
+                <span class="tool-kicker">02 · STROKE</span>
+                <h3>Viền chữ</h3>
+              </div>
+              <span class="tool-scope">Text layer</span>
+            </div>
+            <div class="stroke-style-grid">
+              <label>Trạng thái
+                <select id="bulk-stroke-enabled">
+                  <option value="">Giữ nguyên</option>
+                  <option value="true">Bật Stroke</option>
+                  <option value="false">Tắt Stroke</option>
+                </select>
+              </label>
+              <label>Width<input id="bulk-stroke-width" type="text" inputmode="decimal" placeholder="Giữ nguyên" /></label>
+              <label class="stroke-color-field">Color<input id="bulk-stroke-color" type="text" placeholder="#000000" /></label>
+              <label>Mode
+                <select id="bulk-stroke-mode">
+                  <option value="">Giữ nguyên</option>
+                  <option value="Inside">Inside</option>
+                  <option value="Outside">Outside</option>
+                </select>
+              </label>
+              <label>Line Join
+                <select id="bulk-stroke-line-join">
+                  <option value="">Giữ nguyên</option>
+                  <option value="Round">Round</option>
+                  <option value="Miter">Miter</option>
+                  <option value="Bevel">Bevel</option>
+                </select>
+              </label>
+            </div>
+            <p class="field-note">Chỉ thuộc tính đã chọn được thay đổi; Image layer được bỏ qua.</p>
+            <button id="apply-artwork-stroke" class="primary-button artwork-apply-button" type="button">Apply Stroke</button>
+          </section>
+
+          <section class="artwork-tool-panel" data-artwork-tool-panel="case" hidden>
+            <div class="tool-panel-heading">
+              <div>
+                <span class="tool-kicker">02 · CHANGE CASE</span>
+                <h3>Kiểu viết hoa/thường</h3>
+              </div>
+              <span class="tool-scope">Text layer</span>
+            </div>
+            <label>Change Case
+              <select id="bulk-change-case">
+                <option value="">Chọn kiểu chữ</option>
+                <option value="Default">Default</option>
+                <option value="Uppercase">Uppercase</option>
+                <option value="Lowercase">Lowercase</option>
+              </select>
+            </label>
+            <p class="field-note">Áp dụng cùng một kiểu chữ cho toàn bộ Text layer đã chọn.</p>
+            <button id="apply-artwork-change-case" class="primary-button artwork-apply-button" type="button">Apply Change Case</button>
+          </section>
+
+          <section class="artwork-tool-panel" data-artwork-tool-panel="label" hidden>
+            <div class="tool-panel-heading">
+              <div>
+                <span class="tool-kicker">02 · REPLACE LABEL</span>
+                <h3>Đổi Label hàng loạt</h3>
+              </div>
+              <span class="tool-scope">Template hiện tại</span>
+            </div>
+            <div class="label-replace-grid">
+              <label>Tìm<input id="artwork-label-find" type="text" placeholder="Ví dụ: #5" /></label>
+              <label>Thay bằng<input id="artwork-label-replace" type="text" placeholder="Ví dụ: #4" /></label>
+            </div>
+            <p class="field-note">Quét toàn bộ layer trong template hiện tại. Chỉ edit Label, không tự Save Artwork.</p>
+            <button id="replace-artwork-labels" class="primary-button artwork-apply-button" type="button">Quét &amp; đổi Label</button>
+          </section>
+
+          <div id="artwork-operation-results" class="artwork-operation-results" aria-live="polite"></div>
+          <p id="artwork-batch-feedback" class="upload-feedback" role="status"></p>
+        </div>
+
+        <div class="action-stack">
+          <button id="open-artworks" class="secondary-button" type="button">Mở Customall Artworks ↗</button>
+          <button id="open-campaigns" class="text-button" type="button">Mở Customall Campaigns ↗</button>
+        </div>
+      </section>
+
+      <section id="campaign-panel" class="panel">
+        <div class="context-card">
+          <div>
+            <p class="step-label">CURRENT ARTWORK</p>
+            <strong id="campaign-context-label">Chưa đọc Artwork hiện tại</strong>
+          </div>
+          <button id="refresh-campaign-source" class="icon-button" title="Đọc lại Title và Category">↻</button>
+        </div>
+
+        <div class="form-card">
+          <p class="step-label">01 · SOURCE</p>
+          <h2>Tạo Campaign từ Artwork</h2>
+          <label>
+            Campaign name
+            <input id="campaign-artwork-title" type="text" readonly placeholder="Lấy từ Artwork Title" />
+          </label>
+          <label>
+            Artwork Category
+            <input id="campaign-artwork-category" type="text" readonly placeholder="Lấy từ Artwork Category" />
+          </label>
+          <label id="campaign-mockup-picker" class="drop-zone campaign-mockup-picker">
+            <span>Chọn folder chứa mockup</span>
+            <small id="campaign-mockup-summary">Lấy MK-1, MK-2…, MK-Default, MK-Detail và MK-Review trong folder MK / Mock up / Mockup</small>
+            <input id="campaign-mockup-folder" type="file" webkitdirectory multiple accept=".png,.jpg,.jpeg,.webp" />
+          </label>
+          <button id="prepare-campaign" class="primary-button" type="button">Đọc Artwork & tìm Product Base</button>
+          <p id="campaign-feedback" class="upload-feedback" role="status"></p>
+        </div>
+
+        <div class="form-card">
+          <p class="step-label">WORKFLOW</p>
+          <div class="campaign-flow">
+            <span>1. Product Base</span>
+            <span>2. Campaign title</span>
+            <span>3. Artwork</span>
+            <span>4. SKU suffix + Tags</span>
+            <span>5. Upload mockup hợp lệ</span>
+            <span>6. Save Campaign</span>
+          </div>
+          <p class="field-note">Extension chỉ Save sau khi Title, Artwork, SKU, Tags và mockup đều hoàn tất.</p>
+        </div>
+      </section>
+
+      <section id="tib-panel" class="panel">
+        <div class="context-card">
+          <div>
+            <p class="step-label">CURRENT CONTEXT</p>
+            <strong id="tib-context-label">Chưa nhận diện Teeinblue Artwork</strong>
+          </div>
+          <button id="refresh-tib-context" class="icon-button" title="Kiểm tra lại trang Teeinblue">↻</button>
+        </div>
+
+        <div class="tib-mode-tabs" role="tablist" aria-label="Công cụ MVP6">
+          <button class="tib-mode-tab active" data-tib-mode="labels" type="button">Đổi Label</button>
+          <button class="tib-mode-tab" data-tib-mode="smart" type="button">Smart Setup</button>
+          <button class="tib-mode-tab" data-tib-mode="smart2" type="button">Smart Setup 2.0</button>
+        </div>
+
+        <div id="tib-label-tool" class="form-card tib-mode-panel">
+          <p class="step-label">01 · FIND & REPLACE</p>
+          <h2>Đổi Label hàng loạt</h2>
+          <div class="tib-replace-grid">
+            <label>
+              Tìm
+              <input id="tib-label-find" type="text" value="#5" autocomplete="off" />
+            </label>
+            <label>
+              Thay bằng
+              <input id="tib-label-replace" type="text" value="#4" autocomplete="off" />
+            </label>
+          </div>
+          <label class="switch-row tib-case-setting">
+            <input id="tib-case-sensitive" type="checkbox" checked />
+            <span>Phân biệt hoa/thường</span>
+          </label>
+          <button id="scan-tib-labels" class="primary-button" type="button">Quét & đổi Label</button>
+          <p id="tib-feedback" class="upload-feedback" role="status"></p>
+        </div>
+
+        <div id="tib-smart-tool" class="tib-mode-panel" hidden>
+          <div class="form-card">
+            <p class="step-label">01 · RULE SETTINGS</p>
+            <h2>Smart Setup Condition</h2>
+            <label>
+              Option nguồn
+              <select id="tib-smart-source">
+                <option value="">Tự nhận diện Option có nhiều giá trị nhất</option>
+              </select>
+            </label>
+            <label>
+              Quy tắc Mapping
+              <select id="tib-smart-rule">
+                <option value="exact">Exact Match</option>
+                <option value="contains">Contains</option>
+              </select>
+            </label>
+            <button id="scan-tib-smart" class="primary-button" type="button">Quét & xem trước</button>
+            <p id="tib-smart-feedback" class="upload-feedback" role="status"></p>
+          </div>
+
+          <div id="tib-smart-preview" class="form-card hidden">
+            <div class="section-heading">
+              <div>
+                <p class="step-label">02 · VALIDATION & PREVIEW</p>
+                <h2>Kết quả Auto Mapping</h2>
+              </div>
+              <span id="tib-smart-source-label" class="tool-scope"></span>
+            </div>
+            <div class="tib-validation-grid">
+              <div><small>Matched</small><strong id="tib-smart-matched">0</strong></div>
+              <div><small>Missing</small><strong id="tib-smart-missing">0</strong></div>
+              <div><small>Extra</small><strong id="tib-smart-extra">0</strong></div>
+              <div><small>Duplicate</small><strong id="tib-smart-duplicate">0</strong></div>
+            </div>
+            <div class="tib-smart-table tib-smart-table-head" aria-hidden="true">
+              <span>Option</span><span>Layer</span><span>Status</span>
+            </div>
+            <div id="tib-smart-rows" class="tib-smart-rows"></div>
+            <button id="apply-tib-smart" class="primary-button" type="button" disabled>Batch Apply Condition</button>
+            <p class="field-note">Chỉ Apply các dòng Matched. Extension không tự Save Artwork.</p>
+          </div>
+        </div>
+
+        <div id="tib-smart2-tool" class="tib-mode-panel" hidden>
+          <div class="form-card">
+            <p class="step-label">01 · MULTI-CONDITION SCAN</p>
+            <h2>Smart Setup 2.0</h2>
+            <label>
+              Chọn loại áp dụng
+              <select id="tib-smart2-primary-source">
+                <option value="">Tự nhận diện Option khớp nhiều layer nhất</option>
+              </select>
+            </label>
+            <label>
+              Logic áp dụng
+              <select id="tib-smart2-join">
+                <option value="and">AND — tất cả Option phải khớp</option>
+                <option value="or">OR — chỉ cần một Option khớp</option>
+              </select>
+            </label>
+            <fieldset class="tib-smart2-additional-fieldset">
+              <legend>Option ghép thêm</legend>
+              <div id="tib-smart2-additional-sources" class="tib-smart2-source-list">
+                <span class="field-note">Chọn thêm Option cần ghép.</span>
+              </div>
+            </fieldset>
+            <label>
+              Quy tắc nhận diện
+              <select id="tib-smart2-rule">
+                <option value="contains">Contains / Token</option>
+                <option value="exact">Exact Match</option>
+              </select>
+            </label>
+            <button id="reload-tib-smart2-sources" class="secondary-button" type="button">Đọc lại Option</button>
+            <button id="scan-tib-smart2" class="primary-button" type="button">Scan & Preview Condition</button>
+            <p id="tib-smart2-feedback" class="upload-feedback" role="status"></p>
+          </div>
+
+          <div id="tib-smart2-preview" class="form-card hidden">
+            <div class="section-heading">
+              <div>
+                <p class="step-label">02 · PREVIEW</p>
+                <h2>Kết quả quét</h2>
+              </div>
+              <span class="tool-scope">Replace exact</span>
+            </div>
+            <div class="tib-validation-grid tib-smart2-summary">
+              <div><small>Safe</small><strong id="tib-smart2-safe">0</strong></div>
+              <div><small>Conflict</small><strong id="tib-smart2-conflict">0</strong></div>
+              <div><small>Skip</small><strong id="tib-smart2-skip">0</strong></div>
+            </div>
+            <label class="switch-row">
+              <input id="select-all-tib-smart2" type="checkbox" checked />
+              <span>Chọn tất cả dòng an toàn</span>
+            </label>
+            <div id="tib-smart2-rows" class="tib-smart2-rows"></div>
+            <button id="apply-tib-smart2" class="primary-button" type="button" disabled>Apply Condition đã chọn</button>
+          </div>
+        </div>
+        <p class="field-note">MVP6 chỉ chỉnh dữ liệu trong Artwork hiện tại và không tự bấm Save.</p>
+      </section>
+
+      <section id="tib-campaign-panel" class="panel">
+        <div class="context-card">
+          <div>
+            <p class="step-label">CURRENT ARTWORK</p>
+            <strong id="tib-campaign-context-label">Chưa đọc TeeInBlue Artwork hiện tại</strong>
+          </div>
+          <button id="refresh-tib-campaign-source" class="icon-button" title="Đọc lại Artwork">↻</button>
+        </div>
+
+        <div class="form-card">
+          <p class="step-label">01 · SOURCE</p>
+          <h2>Tạo TeeInBlue Campaign</h2>
+          <label>
+            Campaign title
+            <input id="tib-campaign-title" type="text" readonly placeholder="Lấy từ Artwork title" />
+          </label>
+          <label>
+            Product Base keyword
+            <input id="tib-campaign-product-hint" type="text" placeholder="Ví dụ: Acrylic Magnet" />
+          </label>
+          <label id="tib-campaign-mockup-picker" class="drop-zone campaign-mockup-picker">
+            <span>Chọn folder chứa mockup</span>
+            <small id="tib-campaign-mockup-summary">Lấy MK-1, MK-2…, MK-Default, MK-Detail và MK-Review; bỏ ADS/Pre</small>
+            <input id="tib-campaign-mockup-folder" type="file" webkitdirectory multiple accept=".png,.jpg,.jpeg,.webp" />
+          </label>
+          <button id="prepare-tib-campaign" class="primary-button" type="button">Đọc Artwork & tạo Campaign</button>
+          <p id="tib-campaign-feedback" class="upload-feedback" role="status"></p>
+        </div>
+
+        <div class="form-card">
+          <p class="step-label">WORKFLOW</p>
+          <div class="campaign-flow">
+            <span>1. Đọc Artwork title / ID</span>
+            <span>2. Tạo Campaign title</span>
+            <span>3. Tìm và chọn Product Base</span>
+            <span>4. Link Artwork</span>
+            <span>5. Upload và chọn mockup</span>
+          </div>
+          <p class="field-note">Không điền SKU và Tags. Nếu có nhiều Product Base, chọn một kết quả trên TeeInBlue; tool tự chạy tiếp.</p>
+        </div>
+      </section>
+
+      <section id="mockups-panel" class="panel">
+        <div class="context-card">
+          <div>
+            <p class="step-label">CURRENT CONTEXT</p>
+            <strong id="context-label">Không nhận diện được trang hiện tại</strong>
+          </div>
+          <button id="refresh-context" class="icon-button" title="Refresh">↻</button>
+        </div>
+
+        <div class="form-card">
+          <p class="step-label">01 · IDENTIFY</p>
+          <label>
+            Shopify store handle
+            <input id="store-handle" type="text" placeholder="my-store" autocomplete="off" />
+          </label>
+          <label>
+            Product ID
+            <input id="product-id" type="text" inputmode="numeric" placeholder="123456789" autocomplete="off" />
+          </label>
+        </div>
+
+        <div class="form-card">
+          <p class="step-label">02 · PREPARE MOCKUPS</p>
+          <label class="drop-zone">
+            <span>Chọn PNG/JPG mockup ads</span>
+            <small>Nhiều file sẽ được đánh số theo Product ID</small>
+            <input id="mockup-input" type="file" multiple accept=".png,.jpg,.jpeg,.webp" />
+          </label>
+          <div id="mockup-list" class="mockup-list"></div>
+        </div>
+
+        <div class="action-stack">
+          <button id="upload-shopify" class="primary-button" type="button" disabled>
+            Upload trực tiếp lên Shopify
+          </button>
+          <p id="shopify-upload-feedback" class="upload-feedback" role="status"></p>
+          <button id="open-shopify" class="secondary-button" type="button">Mở Shopify Files ↗</button>
+        </div>
+
+        <div class="history-card">
+          <div class="section-heading">
+            <p class="step-label">RECENT SESSIONS</p>
+            <button id="clear-history" class="text-button compact" type="button">Clear</button>
+          </div>
+          <div id="history-list" class="history-list">
+            <p class="muted">Chưa có session.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="lark-panel" class="panel">
+        <div class="context-card">
+          <div>
+            <p class="step-label">LIVE SOURCE</p>
+            <strong>Shipping + GMC từ Lark Sheet</strong>
+          </div>
+          <button id="refresh-lark-context" class="icon-button" title="Lấy Product Type từ Shopify">↻</button>
+        </div>
+
+        <div class="form-card">
+          <p class="step-label">01 · LOOKUP</p>
+          <label>
+            Shopify Product Type
+            <input id="lark-product-type" type="text" placeholder="Ví dụ: Classic-T-Shirt" autocomplete="off" />
+          </label>
+          <button id="lookup-lark" class="primary-button" type="button">Đọc Lark & điền Shopify</button>
+          <p id="lark-feedback" class="upload-feedback" role="status"></p>
+        </div>
+
+        <div id="lark-results" class="hidden">
+          <div class="live-meta">
+            <span id="lark-fetched-at">—</span>
+            <span id="lark-revisions">—</span>
+          </div>
+
+          <article class="lookup-card">
+            <p class="step-label">SHIPPING</p>
+            <div class="lookup-field">
+              <span>Shipping Page</span>
+              <strong id="lookup-shipping-page">—</strong>
+              <button class="copy-field" data-copy-target="lookup-shipping-page" type="button">Copy</button>
+            </div>
+            <div class="lookup-field vertical">
+              <span>Shipping ETA Code</span>
+              <pre id="lookup-shipping-code">—</pre>
+              <button class="copy-field" data-copy-target="lookup-shipping-code" type="button">Copy</button>
+            </div>
+            <p id="lookup-shipping-source" class="lookup-source"></p>
+          </article>
+
+          <article class="lookup-card">
+            <p class="step-label">GMC</p>
+            <div class="lookup-field">
+              <span>Color</span>
+              <strong id="lookup-gmc-color">—</strong>
+              <button class="copy-field" data-copy-target="lookup-gmc-color" type="button">Copy</button>
+            </div>
+            <div class="lookup-field">
+              <span>Material</span>
+              <strong id="lookup-gmc-material">—</strong>
+              <button class="copy-field" data-copy-target="lookup-gmc-material" type="button">Copy</button>
+            </div>
+            <div class="lookup-field vertical">
+              <span>Category</span>
+              <strong id="lookup-gmc-category">—</strong>
+              <button class="copy-field" data-copy-target="lookup-gmc-category" type="button">Copy</button>
+            </div>
+            <div class="lookup-field vertical">
+              <span>Category ID</span>
+              <strong id="lookup-gmc-category-id">—</strong>
+              <button class="copy-field" data-copy-target="lookup-gmc-category-id" type="button">Copy</button>
+            </div>
+            <p id="lookup-gmc-source" class="lookup-source"></p>
+          </article>
+        </div>
+
+        <details class="connection-settings">
+          <summary>API connection settings</summary>
+          <div class="form-card settings-card">
+            <label>
+              Lookup API URL
+              <input id="lark-api-url" type="url" placeholder="https://lookup.company.com" autocomplete="off" />
+            </label>
+            <label>
+              API key
+              <input id="lark-api-key" type="password" placeholder="Team access key" autocomplete="off" />
+            </label>
+            <button id="save-lark-settings" class="secondary-button" type="button">Save & test connection</button>
+          </div>
+        </details>
+      </section>
+    </main>
+
+    <div id="name-tooltip" class="name-tooltip" role="tooltip"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

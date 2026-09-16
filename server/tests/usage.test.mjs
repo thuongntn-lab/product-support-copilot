@@ -1,0 +1,20 @@
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import nodePath from "node:path";
+
+const directory = await mkdtemp(nodePath.join(process.env.TEMP || ".", "ps-copilot-usage-"));
+const originalDirectory = process.cwd();
+process.chdir(directory);
+const { recordHeartbeat, getUsageSummary } = await import("../src/usage.js");
+const id = "test-installation-123456";
+await recordHeartbeat({ installationId: id, extensionVersion: "0.17.0", now: Date.parse("2026-09-10T08:00:00Z") });
+await recordHeartbeat({ installationId: id, extensionVersion: "0.17.0", now: Date.parse("2026-09-10T08:01:00Z") });
+const summary = await getUsageSummary(Date.parse("2026-09-10T08:02:00Z"));
+assert.equal(summary.totals.installed, 1);
+assert.equal(summary.totals.active, 1);
+assert.equal(summary.totals.activeSeconds, 60);
+assert.equal(summary.periods.day, 60);
+assert.equal(summary.devices[0].lastVersion, "0.17.0");
+process.chdir(originalDirectory);
+await rm(directory, { recursive: true, force: true });
+console.log("usage tests passed");

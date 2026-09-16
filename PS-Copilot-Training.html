@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#ff542e" />
+  <title>PS Copilot · Tài liệu Training</title>
+  <style>
+    :root {
+      --ink: #172018;
+      --muted: #68726b;
+      --line: #dfe5df;
+      --surface: #ffffff;
+      --soft: #f3f7f3;
+      --brand: #ff542e;
+      --brand-dark: #dc3518;
+      --green: #16845b;
+      --amber: #a76100;
+      --red: #c9362b;
+      --shadow: 0 18px 45px rgba(34, 45, 37, 0.09);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 92px; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 5% 0%, rgba(255, 84, 46, 0.12), transparent 28rem),
+        radial-gradient(circle at 100% 15%, rgba(22, 132, 91, 0.09), transparent 30rem),
+        #f8faf8;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    button, input { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    a { color: inherit; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-height: 72px;
+      padding: 12px max(18px, env(safe-area-inset-right)) 12px max(18px, env(safe-area-inset-left));
+      border-bottom: 1px solid rgba(223, 229, 223, 0.92);
+      background: rgba(248, 250, 248, 0.9);
+      backdrop-filter: blur(16px);
+    }
+
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      flex: 0 0 42px;
+      border-radius: 13px;
+      color: #fff;
+      background: var(--brand);
+      box-shadow: 0 10px 24px rgba(255, 84, 46, 0.3);
+      font-weight: 900;
+      letter-spacing: -0.04em;
+    }
+
+    .brand-copy { min-width: 0; }
+    .brand-copy strong { display: block; font-size: 16px; line-height: 1.2; }
+    .brand-copy span { color: var(--muted); font-size: 12px; }
+    .top-actions { display: flex; gap: 8px; margin-left: auto; }
+
+    .button {
+      min-height: 42px;
+      padding: 9px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--ink);
+      background: var(--surface);
+      cursor: pointer;
+      font-weight: 750;
+    }
+    .button:hover { border-color: #bac5bc; transform: translateY(-1px); }
+    .button.primary { border-color: var(--brand); color: #fff; background: var(--brand); }
+    .button.primary:hover { background: var(--brand-dark); }
+
+    .page {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 920px);
+      justify-content: center;
+      gap: 32px;
+      width: min(1240px, 100%);
+      margin: 0 auto;
+      padding: 34px 24px 90px;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 104px;
+      align-self: start;
+      max-height: calc(100vh - 124px);
+      overflow: auto;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.82);
+      box-shadow: var(--shadow);
+    }
+
+    .sidebar-label, .eyebrow {
+      margin: 0 0 9px;
+      color: var(--brand);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .search {
+      width: 100%;
+      min-height: 44px;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--ink);
+      background: #fff;
+      outline: none;
+    }
+    .search:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(255, 84, 46, 0.13); }
+
+    .nav-list { display: grid; gap: 6px; }
+    .nav-list a {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      align-items: center;
+      min-height: 46px;
+      padding: 7px 9px;
+      border-radius: 11px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 750;
+    }
+    .nav-list a:hover { background: var(--soft); }
+    .nav-num {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      color: var(--brand-dark);
+      background: #fff0eb;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    main { min-width: 0; }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(28px, 6vw, 62px);
+      border-radius: 30px;
+      color: #fff;
+      background: #18221a;
+      box-shadow: var(--shadow);
+    }
+    .hero::after {
+      content: "PS";
+      position: absolute;
+      right: -18px;
+      bottom: -76px;
+      color: rgba(255, 255, 255, 0.055);
+      font-size: clamp(190px, 34vw, 330px);
+      font-weight: 950;
+      line-height: 1;
+      letter-spacing: -0.12em;
+    }
+    .hero > * { position: relative; z-index: 1; }
+    .hero .eyebrow { color: #ff9d84; }
+    h1 { max-width: 700px; margin: 0; font-size: clamp(36px, 7vw, 68px); line-height: 0.98; letter-spacing: -0.055em; }
+    .hero-copy { max-width: 680px; margin: 22px 0 0; color: #d8e0d9; font-size: clamp(16px, 2vw, 19px); }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 28px; }
+    .pill { padding: 7px 11px; border: 1px solid rgba(255,255,255,0.17); border-radius: 999px; color: #edf4ee; background: rgba(255,255,255,0.07); font-size: 12px; font-weight: 800; }
+
+    .quick-start {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin: 22px 0 36px;
+    }
+    .quick-card { padding: 19px; border: 1px solid var(--line); border-radius: 17px; background: var(--surface); }
+    .quick-card b { display: block; margin-bottom: 6px; font-size: 14px; }
+    .quick-card p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .section-heading { margin: 48px 0 18px; }
+    .section-heading h2 { margin: 0; font-size: clamp(26px, 4vw, 38px); line-height: 1.1; letter-spacing: -0.035em; }
+    .section-heading p { margin: 9px 0 0; color: var(--muted); }
+
+    .mvp-card {
+      scroll-margin-top: 92px;
+      margin-bottom: 22px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: 0 12px 34px rgba(34, 45, 37, 0.055);
+    }
+
+    .mvp-head {
+      display: grid;
+      grid-template-columns: 52px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 15px;
+      padding: 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(120deg, #fff, #fbfdfb);
+    }
+    .mvp-index { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 15px; color: #fff; background: var(--brand); font-weight: 900; }
+    .mvp-title h3 { margin: 0; font-size: clamp(20px, 3vw, 27px); line-height: 1.15; letter-spacing: -0.025em; }
+    .mvp-title p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+    .status { padding: 6px 10px; border-radius: 999px; color: var(--green); background: #e9f8f1; font-size: 11px; font-weight: 900; }
+
+    .mvp-body { padding: 22px; }
+    details { border-top: 1px solid var(--line); }
+    details:first-of-type { border-top: 0; }
+    summary {
+      display: flex;
+      align-items: center;
+      min-height: 52px;
+      padding: 10px 2px;
+      cursor: pointer;
+      list-style: none;
+      font-weight: 850;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; margin-left: auto; color: var(--brand); font-size: 23px; font-weight: 500; }
+    details[open] summary::after { content: "−"; }
+    .detail-content { padding: 0 4px 18px; color: #39423b; }
+    .detail-content > :first-child { margin-top: 0; }
+    .detail-content > :last-child { margin-bottom: 0; }
+
+    ul, ol { padding-left: 1.25rem; }
+    li + li { margin-top: 7px; }
+    code { padding: 2px 6px; border-radius: 6px; color: #9c2d18; background: #fff0eb; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em; }
+
+    .steps { counter-reset: step; display: grid; gap: 10px; padding: 0; list-style: none; }
+    .steps li { position: relative; min-height: 42px; padding: 8px 8px 8px 48px; }
+    .steps li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 6px;
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      color: var(--brand-dark);
+      background: #fff0eb;
+      font-weight: 900;
+    }
+
+    .note { margin: 14px 0; padding: 13px 15px; border-left: 4px solid var(--amber); border-radius: 10px; color: #62420e; background: #fff7e8; font-size: 13px; }
+    .note.success { border-left-color: var(--green); color: #155c43; background: #eaf8f2; }
+    .note.danger { border-left-color: var(--red); color: #7c2822; background: #fff0ef; }
+
+    .rule-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .rule-table th, .rule-table td { padding: 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .rule-table th { color: var(--muted); background: var(--soft); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+
+    .no-results { display: none; margin: 28px 0; padding: 30px; border: 1px dashed #bbc5bd; border-radius: 18px; text-align: center; color: var(--muted); background: #fff; }
+    .no-results.show { display: block; }
+    .hidden-by-search { display: none !important; }
+
+    .footer { margin-top: 38px; padding: 26px; border-radius: 20px; color: #dce5dd; background: #18221a; }
+    .footer strong { color: #fff; }
+    .footer p { margin: 7px 0 0; }
+    .back-top { position: fixed; right: 18px; bottom: max(18px, env(safe-area-inset-bottom)); z-index: 20; display: none; width: 46px; height: 46px; border: 0; border-radius: 15px; color: #fff; background: var(--brand); box-shadow: 0 12px 28px rgba(255,84,46,.32); cursor: pointer; font-weight: 900; }
+    .back-top.show { display: block; }
+
+    @media (max-width: 900px) {
+      .page { grid-template-columns: 1fr; padding: 18px 14px 78px; }
+      .sidebar { position: static; max-height: none; padding: 12px; overflow: hidden; }
+      .sidebar-label { display: none; }
+      .search { margin-bottom: 10px; }
+      .nav-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
+      .nav-list a { grid-template-columns: 28px max-content; flex: 0 0 auto; border: 1px solid var(--line); background: #fff; }
+      .nav-num { width: 24px; height: 24px; }
+      .quick-start { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 620px) {
+      .topbar { min-height: 64px; }
+      .brand-copy span { display: none; }
+      .top-actions .button:not(.primary) { display: none; }
+      .page { padding-left: 10px; padding-right: 10px; }
+      .hero { padding: 30px 22px; border-radius: 22px; }
+      .hero::after { right: -12px; bottom: -38px; font-size: 170px; }
+      .mvp-head { grid-template-columns: 44px 1fr; padding: 17px; }
+      .mvp-index { width: 44px; height: 44px; }
+      .status { grid-column: 2; justify-self: start; }
+      .mvp-body { padding: 16px; }
+      .rule-table { display: block; overflow-x: auto; white-space: nowrap; }
+      .button { min-height: 44px; }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .topbar, .sidebar, .back-top, .top-actions { display: none !important; }
+      .page { display: block; width: 100%; padding: 0; }
+      .hero { color: #111; background: #fff; box-shadow: none; border: 2px solid #111; }
+      .hero-copy, .hero .eyebrow { color: #333; }
+      .pill { color: #111; border-color: #888; }
+      .mvp-card { break-inside: avoid; box-shadow: none; }
+      details { break-inside: avoid; }
+      details > .detail-content { display: block !important; }
+      summary::after { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true">PS</div>
+    <div class="brand-copy">
+      <strong>PS Copilot Training</strong>
+      <span>Product Support · Customall · Shopify · Teeinblue</span>
+    </div>
+    <div class="top-actions">
+      <button class="button" id="toggle-all" type="button">Mở tất cả</button>
+      <button class="button primary" id="print-page" type="button">In / Lưu PDF</button>
+    </div>
+  </header>
+
+  <div class="page">
+    <aside class="sidebar" aria-label="Điều hướng tài liệu">
+      <p class="sidebar-label">Tìm trong tài liệu</p>
+      <input class="search" id="search" type="search" placeholder="Ví dụ: mockup, label…" aria-label="Tìm trong tài liệu" />
+      <nav class="nav-list">
+        <a href="#mvp1"><span class="nav-num">01</span><span>Cliparts</span></a>
+        <a href="#mvp2"><span class="nav-num">02</span><span>Artwork</span></a>
+        <a href="#mvp3"><span class="nav-num">03</span><span>Mockup Ads</span></a>
+        <a href="#mvp4"><span class="nav-num">04</span><span>Lark Data</span></a>
+        <a href="#mvp5"><span class="nav-num">05</span><span>Campaign</span></a>
+        <a href="#mvp6"><span class="nav-num">06</span><span>TIB Labels</span></a>
+        <a href="#mvp7"><span class="nav-num">07</span><span>TIB Campaign</span></a>
+      </nav>
+    </aside>
+
+    <main>
+      <section class="hero">
+        <p class="eyebrow">Product Support Operations</p>
+        <h1>Hướng dẫn sử dụng PS Copilot</h1>
+        <p class="hero-copy">Một tài liệu duy nhất cho 6 quy trình: chuẩn bị clipart, chỉnh Artwork, upload mockup, điền dữ liệu Shopify, tạo Campaign và xử lý Teeinblue.</p>
+        <div class="hero-meta">
+          <span class="pill">Version 0.14.25</span>
+          <span class="pill">Chạy offline</span>
+          <span class="pill">PC & Mobile</span>
+          <span class="pill">6 MVP</span>
+        </div>
+      </section>
+
+      <section class="quick-start" aria-label="Bắt đầu nhanh">
+        <article class="quick-card"><b>1. Mở đúng trang</b><p>Mở Customall, Shopify hoặc Teeinblue đúng màn hình cần thao tác.</p></article>
+        <article class="quick-card"><b>2. Mở PS Copilot</b><p>Chọn tab MVP tương ứng và kiểm tra Current Context.</p></article>
+        <article class="quick-card"><b>3. Kiểm tra trước Save</b><p>Tool tự động thao tác; PS vẫn cần kiểm tra kết quả trước khi hoàn tất.</p></article>
+      </section>
+
+      <div class="section-heading">
+        <p class="eyebrow">Training Modules</p>
+        <h2>6 tính năng chính</h2>
+        <p>Mở từng mục để xem quy trình và quy tắc cần nhớ.</p>
+      </div>
+
+      <div id="no-results" class="no-results">Không tìm thấy nội dung phù hợp. Hãy thử từ khóa khác.</div>
+
+      <article class="mvp-card" id="mvp1" data-search="mvp1 clipart customall folder upload csv rename tên trùng thiếu số thumbs">
+        <header class="mvp-head">
+          <div class="mvp-index">01</div>
+          <div class="mvp-title"><h3>Customall Cliparts</h3><p>Kiểm tra, chuẩn hóa và upload clipart</p></div>
+          <span class="status">Đã chốt</span>
+        </header>
+        <div class="mvp-body">
+          <details open><summary>Tool hỗ trợ gì?</summary><div class="detail-content"><ul>
+            <li>Đọc một folder lớn và các folder con bên trong.</li>
+            <li>Kiểm tra file hợp lệ, file lỗi, trùng nội dung, trùng số và thiếu số trong chuỗi tên.</li>
+            <li>Bỏ qua file hệ thống như <code>Thumbs.db</code>.</li>
+            <li>Tự chuẩn hóa số thành <code>001</code>, <code>002</code>…</li>
+            <li>Replace hoặc chỉnh tên hàng loạt; xem cảnh báo qua tooltip.</li>
+            <li>Upload trực tiếp lên Customall và xuất báo cáo CSV.</li>
+          </ul></div></details>
+          <details><summary>Quy trình sử dụng</summary><div class="detail-content"><ol class="steps">
+            <li>Mở trang Customall Cliparts.</li>
+            <li>Chọn <b>folder clipart</b>; tool tự quét toàn bộ file.</li>
+            <li>Xem Errors/Warnings và tooltip của từng file.</li>
+            <li>Bật hoặc tắt <b>Tự chuẩn hóa tên</b>; dùng Batch Edit nếu cần.</li>
+            <li>Khi không còn lỗi chặn, bấm <b>Upload to Customall</b>.</li>
+          </ol></div></details>
+          <details><summary>Lưu ý</summary><div class="detail-content"><div class="note">Tên có thể cùng phần chữ như A 001, A 002; nhưng không được lặp cùng một mã như A 002 nhiều lần.</div></div></details>
+        </div>
+      </article>
+
+      <article class="mvp-card" id="mvp2" data-search="mvp2 artwork customall transform x y width height rotate skew font max font size color stroke change case replace label group layer">
+        <header class="mvp-head">
+          <div class="mvp-index">02</div>
+          <div class="mvp-title"><h3>Customall Artwork</h3><p>Chỉnh đồng loạt layer trong Artwork</p></div>
+          <span class="status">Đã chốt</span>
+        </header>
+        <div class="mvp-body">
+          <details open><summary>Các công cụ Batch Editor</summary><div class="detail-content">
+            <table class="rule-table"><thead><tr><th>Công cụ</th><th>Thuộc tính</th></tr></thead><tbody>
+              <tr><td><b>Transform</b></td><td>X, Y, Width, Height, Rotate, Skew</td></tr>
+              <tr><td><b>Text Style</b></td><td>Font, Max font size, Color</td></tr>
+              <tr><td><b>Stroke</b></td><td>Bật/tắt, Width, Color, Inside/Outside, Round/Miter/Bevel</td></tr>
+              <tr><td><b>Change Case</b></td><td>Default, Uppercase, Lowercase</td></tr>
+              <tr><td><b>Replace Label</b></td><td>Tìm/thay nội dung trên đúng layer hoặc group đã chọn</td></tr>
+            </tbody></table>
+          </div></details>
+          <details><summary>Quy trình sử dụng</summary><div class="detail-content"><ol class="steps">
+            <li>Mở một Artwork trong Customall và chọn tab <b>MVP2 · Artwork</b>.</li>
+            <li>Bấm <b>Quét lại</b> để đọc cây group/layer.</li>
+            <li>Tick từng layer, tick cả group hoặc chọn <b>Chỉ Text</b>.</li>
+            <li>Chọn công cụ, chỉ nhập các thuộc tính muốn thay đổi.</li>
+            <li>Bấm Apply, kiểm tra kết quả trực tiếp trên Artwork.</li>
+            <li>Bấm <b>Save</b> trên Customall sau khi kiểm tra.</li>
+          </ol></div></details>
+          <details><summary>Replace Label</summary><div class="detail-content"><ul>
+            <li>Ví dụ: tìm <code>#5</code>, thay bằng <code>#4</code>.</li>
+            <li>Để trống ô “Thay bằng” nếu muốn xóa chuỗi được tìm.</li>
+            <li>Tick group sẽ xử lý các layer con trong group; layer không chọn sẽ không bị thay đổi.</li>
+            <li>Cây layer được giữ nguyên trong lúc Replace, không tự đóng/mở toàn bộ group.</li>
+          </ul><div class="note danger">Extension không tự Save Artwork. Luôn kiểm tra canvas và Label trước khi bấm Save.</div></div></details>
+        </div>
+      </article>
+
+      <article class="mvp-card" id="mvp3" data-search="mvp3 mockup ads shopify files product id upload png jpg rename store">
+        <header class="mvp-head">
+          <div class="mvp-index">03</div>
+          <div class="mvp-title"><h3>Shopify Mockup Ads</h3><p>Đổi tên và upload ảnh vào Shopify Files</p></div>
+          <span class="status">Đã chốt</span>
+        </header>
+        <div class="mvp-body">
+          <details open><summary>Quy trình sử dụng</summary><div class="detail-content"><ol class="steps">
+            <li>Mở đúng sản phẩm hoặc Shopify Files.</li>
+            <li>Kiểm tra tool đã nhận đúng Store và Product ID.</li>
+            <li>Chọn các ảnh PNG/JPG mockup ads trên máy.</li>
+            <li>Tool tự đổi tên ảnh theo Product ID.</li>
+            <li>Bấm upload trực tiếp lên Shopify Files.</li>
+          </ol></div></details>
+          <details><summary>Tiện ích đi kèm</summary><div class="detail-content"><ul><li>Không cần đổi tên file thủ công.</li><li>Có nút mở nhanh Shopify Files.</li><li>Lưu lịch sử các phiên upload gần đây.</li></ul></div></details>
+        </div>
+      </article>
+
+      <article class="mvp-card" id="mvp4" data-search="mvp4 lark sheet shopify shipping eta page gmc material color category json others product type">
+        <header class="mvp-head">
+          <div class="mvp-index">04</div>
+          <div class="mvp-title"><h3>Lark Data → Shopify</h3><p>Đọc dữ liệu online và điền metafield</p></div>
+          <span class="status">Đã chốt</span>
+        </header>
+        <div class="mvp-body">
+          <details open><summary>Dữ liệu được điền</summary><div class="detail-content">
+            <table class="rule-table"><thead><tr><th>Shopify</th><th>Nguồn Lark</th><th>Dạng dữ liệu</th></tr></thead><tbody>
+              <tr><td>Shipping ETA</td><td>Data Shipping ETA</td><td>JSON</td></tr>
+              <tr><td>Shipping Page</td><td>Data Shipping ETA</td><td>Page</td></tr>
+              <tr><td>GMC Material</td><td>Product Category 2026</td><td>Single line text</td></tr>
+              <tr><td>GMC Color</td><td>Product Category 2026</td><td>Single line text</td></tr>
+              <tr><td>Category</td><td>Category breadcrumb</td><td>Shopify Category</td></tr>
+            </tbody></table>
+          </div></details>
+          <details><summary>Logic dò dữ liệu</summary><div class="detail-content"><ul>
+            <li>Product Type Shopify khớp Lark: lấy đúng dòng tương ứng.</li>
+            <li>Không có trong bảng Shipping ETA: dùng dòng <b>Others</b>.</li>
+            <li>Clothing dùng thông tin chi tiết của sản phẩm để xác định đúng loại áo.</li>
+            <li>Có mapping riêng cho Mug, Tumbler, Ornament và các Product Type đặc biệt.</li>
+            <li>Ô trống trên Lark sẽ được giữ trống.</li>
+            <li>Metafield GMC Material/GMC Color được mở theo tên activator Shopify và liên kết label-input động, nên không phụ thuộc vị trí cột giữa PAW và WR.</li>
+          </ul></div></details>
+          <details><summary>Quy trình sử dụng</summary><div class="detail-content"><ol class="steps"><li>Mở trang chỉnh sửa sản phẩm Shopify.</li><li>Kiểm tra Product Type tool nhận diện.</li><li>Bấm <b>Đọc Lark & điền Shopify</b>; trạng thái đang xử lý, thành công hoặc lỗi sẽ hiển thị ngay dưới nút.</li><li>Extension dò thêm Giftbox Product Handle theo Product Type bằng Chrome DevTools và điền vào metafield Giftbox nếu field đang hiển thị.</li><li>Lookup API tự kiểm tra và làm mới phiên Lark trước khi đọc Sheet; chỉ khi hiện cảnh báo <b>API offline</b> mới cần khởi động lại API port 8787.</li><li>Kiểm tra các trường rồi Save sản phẩm.</li></ol><div class="note success">Giftbox lấy từ Sheet Product Type → Product Handle tại thời điểm chạy; các mapping MVP4 hiện có không bị thay đổi.</div></div></details>
+        </div>
+      </article>
+
+      <article class="mvp-card" id="mvp5" data-search="mvp5 campaign customall artwork product base sku us tags customall personalized mockup mk default detail record id save">
+        <header class="mvp-head">
+          <div class="mvp-index">05</div>
+          <div class="mvp-title"><h3>Customall Campaign</h3><p>Tạo Campaign hoàn chỉnh từ Artwork</p></div>
+          <span class="status">Đã chốt</span>
+        </header>
+        <div class="mvp-body">
+          <details open><summary>Workflow tự động</summary><div class="detail-content"><ol class="steps">
+            <li>Đọc Artwork title và Category.</li>
+            <li>Tìm Product Base có tên chứa Category.</li>
+            <li>Một kết quả: tự chọn. Nhiều kết quả: PS chọn đúng base.</li>
+            <li>Tạo Campaign, điền title và link Artwork.</li>
+            <li>Điền SKU suffix <code>US</code> và tags <code>customall</code>, <code>personalized</code>.</li>
+            <li>Upload mockup hợp lệ, tự chọn ảnh, Save Edit Mockup và Campaign.</li>
+          </ol></div></details>
+          <details><summary>Quy tắc nhận mockup</summary><div class="detail-content"><ul>
+            <li>Folder được chấp nhận: <code>MK</code>, <code>Mock up</code>, <code>Mockup</code>.</li>
+            <li>File được lấy: <code>MK-1</code>, <code>MK-1-DF</code>, <code>MK-2</code>…, <code>MK-Default</code>/<code>MK-DF</code>, <code>MK-Detail</code>, <code>MK-Review</code> (không phân biệt hoa/thường).</li>
+            <li>Không lấy ảnh chứa ADS, Pre hoặc tên nằm ngoài quy tắc.</li>
+            <li>Có thể dò đúng folder campaign theo Record ID.</li>
+          </ul></div></details>
+          <details><summary>Lưu ý Product Base</summary><div class="detail-content"><div class="note">Nếu có nhiều Product Base cùng chứa Category, PS phải chọn đúng kết quả. Tool chỉ tự chọn khi có đúng một kết quả.</div></div></details>
+        </div>
+      </article>
+
+      <article class="mvp-card" id="mvp6" data-search="mvp6 teeinblue tib label smart setup auto mapping condition exact contains validation matched missing extra duplicate batch apply design settings">
+        <header class="mvp-head">
+          <div class="mvp-index">06</div>
+          <div class="mvp-title"><h3>Teeinblue Labels & Smart Setup</h3><p>Đổi Label và thiết lập Condition hàng loạt</p></div>
+          <span class="status">Đã chốt</span>
+        </header>
+        <div class="mvp-body">
+          <details open><summary>Đổi Label hàng loạt</summary><div class="detail-content"><ul>
+            <li>Quét Label trong Artwork Teeinblue, gồm layer, option và dữ liệu trong Design Settings.</li>
+            <li>Tìm/thay chuỗi như <code>#3 → #4</code>.</li>
+            <li>Có thể bật/tắt phân biệt hoa thường.</li>
+            <li>Xử lý nhiều layer có cùng Label trong một lần chạy.</li>
+          </ul></div></details>
+          <details><summary>Smart Setup Condition</summary><div class="detail-content"><ul>
+            <li>Đọc cả Option thường và layer <strong>Additional Options</strong> đang gắn trong Artwork để tạo mapping.</li>
+            <li>Condition của Additional Options được chọn theo danh sách giá trị của TeeInBlue.</li>
+            <li>Tool tự đồng bộ lại Condition sau khi TeeInBlue tải nguồn Option.</li>
+            <li>Smart Setup chờ editor ổn định và chỉ Apply khi danh sách giá trị đã tải xong.</li>
+            <li>Layer duplicate đã có Condition sẽ được thay thế về đúng một giá trị mapping; tool không cộng thêm giá trị cũ.</li>
+            <li>Tool xác minh dấu vân tay logic ngay trong tab TeeInBlue. Sau khi Reload, nếu tab chưa có bộ xử lý thì tool tự khởi tạo đúng một lần; nếu phát hiện code cũ, tool dừng thay vì báo Apply thành công ảo.</li>
+            <li>Auto Mapping Option ↔ Layer theo tên.</li>
+            <li>Quy tắc Exact Match hoặc Contains.</li>
+            <li>Validation: Matched, Missing, Extra, Duplicate.</li>
+            <li>Hiển thị bảng Preview trước khi áp dụng.</li>
+            <li>Batch Apply toàn bộ Condition trong một lần bấm.</li>
+          </ul></div></details>
+          <details><summary>Smart Setup 2.0 — Multi Condition</summary><div class="detail-content"><ul>
+            <li>Chọn loại áp dụng trước, rồi bấm <strong>Scan & Preview Condition</strong>.</li>
+            <li>Tool tự quét layer và trả về danh sách layer khớp, trạng thái <strong>Safe / Conflict / Skip</strong>.</li>
+            <li>Nếu cần ghép thêm Option khác, chỉ tick các Option phụ trước khi quét và chọn logic <strong>AND</strong> hoặc <strong>OR</strong>.</li>
+            <li>Nhóm nào khớp sẽ được replace condition chính xác theo giá trị đang quét; điều kiện cũ được giữ hoặc thay thế đúng theo kết quả scan.</li>
+            <li>Preview chỉ hiển thị số lượng và các dòng sẽ Apply để PS kiểm tra nhanh trước khi bấm Apply.</li>
+            <li>Extension chỉ Apply Condition, không tự Save Artwork.</li>
+          </ul></div></details>
+          <details><summary>Quy trình sử dụng</summary><div class="detail-content"><ol class="steps"><li>Mở Artwork trong Teeinblue Portal.</li><li>Chọn Đổi Label hoặc Smart Setup.</li><li>Nhập rule và bấm quét/xem trước.</li><li>Kiểm tra danh sách kết quả.</li><li>Apply và tự Save Artwork sau khi xác nhận.</li></ol><div class="note danger">MVP6 chỉ chỉnh dữ liệu trong Artwork hiện tại, không tự Save.</div></div></details>
+        </div>
+      </article>
+
+      <article class="mvp-card" id="mvp7" data-search="mvp7 teeinblue tib campaign artwork product base mockup mk default detail upload">
+        <header class="mvp-head">
+          <div class="mvp-index">07</div>
+          <div class="mvp-title"><h3>TeeInBlue Campaign</h3><p>Tạo Campaign từ Artwork và mockup trên máy</p></div>
+        </header>
+        <div class="mvp-body">
+          <details open><summary>Workflow</summary><div class="detail-content"><ol class="steps">
+            <li>Mở popup hoặc trang Edit Artwork TeeInBlue cần dùng.</li>
+            <li>Mở MVP7, kiểm tra Campaign title và Product Base keyword. Nút reload sẽ tự mở Artwork details để đọc Category rồi đóng lại; khi chuyển Artwork, tool không giữ Product Base của Artwork trước.</li>
+            <li>Tool chờ danh sách Product Base tải ổn định: chỉ có 1 kết quả mới tự chọn; có nhiều kết quả sẽ để người dùng chọn đúng Product Base.</li>
+            <li>Chọn folder chứa mockup như quy trình đã chốt; chọn xong MVP7 tự chạy toàn bộ quy trình. Nếu Chrome hiện xác nhận quyền upload folder, bấm Upload. Nếu Campaign đã có Product Base, tool đi thẳng đến bước tìm và link Artwork.</li>
+            <li>Campaign đã hiện Available Products và Print Areas sẽ được nhận là đã có Product Base; tool không tìm Product Base lại.</li>
+            <li>Chọn folder mockup nếu cần upload ảnh.</li>
+            <li>Bấm <b>Đọc Artwork & tạo Campaign</b>.</li>
+            <li>Một Product Base: tool tự chọn. Nhiều kết quả: PS chọn một kết quả trên TeeInBlue, tool tự chạy tiếp.</li>
+            <li>Tool bỏ chọn mockup cũ, link đúng Artwork, upload mockup, chờ TeeInBlue tự chọn đúng ảnh vừa tải và bấm Select.</li>
+            <li>Khi tìm Product Base, MVP7 lọc theo đúng tên Product Base chứa keyword của Artwork; các card không khớp sẽ không hiển thị trong bảng chọn.</li>
+          </ol></div></details>
+          <details><summary>Quy tắc mockup</summary><div class="detail-content"><ul>
+            <li>Nhận <code>MK-1</code>, <code>MK-1-DF</code>, <code>MK-2</code>…, <code>MK-Default</code>/<code>MK-DF</code>, <code>MK-Detail</code> và <code>MK-Review</code> (không phân biệt hoa/thường).</li>
+            <li>Bỏ các file ADS, Pre và file không đúng quy tắc.</li>
+            <li>MVP7 không điền SKU suffix và Tags.</li>
+          </ul></div></details>
+          <details><summary>Lưu ý</summary><div class="detail-content"><div class="note">Sau khi tool hoàn tất, kiểm tra Product Base, Artwork và Preview trước khi Launch Campaign.</div></div></details>
+        </div>
+      </article>
+
+      <section class="footer">
+        <strong>Cách nhận bản cập nhật</strong>
+        <p>Mở <code>chrome://extensions</code> → bấm <b>Reload</b> PS Copilot → kiểm tra version → refresh hoặc mở lại trang đang thao tác.</p>
+      </section>
+    </main>
+  </div>
+
+  <button class="back-top" id="back-top" type="button" aria-label="Về đầu trang">↑</button>
+
+  <script>
+    (() => {
+      const cards = [...document.querySelectorAll('.mvp-card')];
+      const search = document.querySelector('#search');
+      const noResults = document.querySelector('#no-results');
+      const toggleAll = document.querySelector('#toggle-all');
+
+      function normalize(value) {
+        return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      }
+
+      function filterCards() {
+        const query = normalize(search.value.trim());
+        let visibleCount = 0;
+        cards.forEach((card) => {
+          const haystack = normalize(`${card.dataset.search || ''} ${card.textContent}`);
+          const match = !query || haystack.includes(query);
+          card.classList.toggle('hidden-by-search', !match);
+          if (match) visibleCount += 1;
+        });
+        noResults.classList.toggle('show', visibleCount === 0);
+      }
+
+      search.addEventListener('input', filterCards);
+      document.querySelector('#print-page').addEventListener('click', () => window.print());
+
+      toggleAll.addEventListener('click', () => {
+        const details = [...document.querySelectorAll('.mvp-card details')];
+        const shouldOpen = details.some((item) => !item.open);
+        details.forEach((item) => { item.open = shouldOpen; });
+        toggleAll.textContent = shouldOpen ? 'Thu gọn tất cả' : 'Mở tất cả';
+      });
+
+      const backTop = document.querySelector('#back-top');
+      window.addEventListener('scroll', () => backTop.classList.toggle('show', window.scrollY > 700), { passive: true });
+      backTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+
+      filterCards();
+    })();
+  </script>
+  <!-- v0.15.14: MVP7 nhận Product Base đã render bằng vùng Select artwork. -->
+  <!-- v0.15.15: MVP7 phản hồi theo DOM khi Product Base và Artwork xuất hiện; giữ nguyên workflow. -->
+  <!-- v0.16.7: MVP7 lọc trực tiếp các Product Base card theo keyword, không hiển thị card ngoài kết quả. -->
+  <!-- v0.16.8: MVP6 Smart Setup 2.0 hiển thị layer theo breadcrumb group/layer để phân biệt layer trùng tên. -->
+  <!-- v0.16.9: Smart Setup 2.0 giữ định danh layer theo DOM và đối chiếu Category/Owner khi Apply Condition. -->
+  <!-- v0.16.10: Smart Setup 2.0 hỗ trợ dropdown portal của TeeInBlue 2.0,
+       đối chiếu title ổn định khi Owner là id/display khác nhau, và hiển thị layer theo breadcrumb. -->
+  <!-- v0.16.11: Conditional Setting đối chiếu theo tên Option chuẩn hóa,
+       không chặn bởi layer id/owner khác định dạng; giảm thời gian chờ dropdown. -->
+  <!-- v0.16.12: nhận diện Value theo data-title/data-value/value/alt/text và
+       hỗ trợ giá trị số có/không có số 0 đầu khi Apply Condition. -->
+  <!-- v0.16.13: bỏ Value mặc định TeeInBlue tự tick trước khi Apply,
+       xác minh đúng toàn bộ tập Value, không giữ nhầm 001 khi cần 006. -->
+  <!-- v0.16.14: không chặn Apply bởi re-render Condition khi chuyển layer;
+       vẫn xác minh Final Condition sau khi áp dụng. -->
+  <!-- v0.16.15: đọc Value từ input/label kể cả khi TeeInBlue render label ngoài block;
+       xác minh lại bộ Value sau khi chọn để tránh báo sai các giá trị như 006. -->
+  <!-- v0.16.16: ưu tiên label/data-value trước input.value="on" của checkbox;
+       sửa Apply Condition cho cả AND và OR. -->
+  <!-- v0.16.17: giá trị trùng giữa các Category không còn là Conflict khi dùng
+       AND; ví dụ Frame=003 AND Style=003 được xem là điều kiện hợp lệ. -->
+  <!-- v0.16.18: retry chờ Conditional Setting sau khi chuyển layer trên máy
+       chậm; hiển thị lỗi Apply đầu tiên để tránh báo thành công giả. -->
+  <!-- v0.16.19: ưu tiên định danh layer theo group path + tên layer trước
+       index, tránh máy team mở nhầm layer sau khi cây layer re-render. -->
+  <!-- v0.17.0: extension gửi heartbeat ẩn danh theo Chrome profile để quản trị
+       viên xem số thiết bị, hoạt động gần đây, thời gian ngày/tuần/tháng và phiên bản. -->
+  <!-- v0.17.1: dashboard usage chỉ mở từ localhost trên máy admin; member vẫn
+       dùng extension qua share nhưng không xem được status quản trị. -->
+  <!-- v0.17.4: dashboard hiển thị đầy đủ installation ID và cho phép xuống dòng
+       để quản trị viên xem trọn mã thiết bị. -->
+  <!-- v0.18.0: dashboard hiển thị MVP được dùng nhiều nhất theo lượt mở tab. -->
+  <!-- v0.18.1: dashboard hiển thị bảng đầy đủ lượt dùng của từng MVP. -->
+  <!-- v0.18.2: cố định đường dẫn Lark CLI cho server keep-alive để Lookup API
+       khôi phục đúng quyền user sau khi khởi động lại. -->
+</body>
+</html>

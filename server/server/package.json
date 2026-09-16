@@ -1,0 +1,13 @@
+{
+  "name": "customall-lark-lookup-api",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node tests/lark-data.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

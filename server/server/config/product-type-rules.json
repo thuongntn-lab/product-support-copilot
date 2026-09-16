@@ -1,0 +1,27 @@
+{
+  "version": 3,
+  "shippingDirectMap": {
+    "mug": "White mug",
+    "tumbler": "Tumbler 20oz"
+  },
+  "clothingProductTypes": [
+    "Classic-T-Shirt",
+    "Classic-Women-T-Shirt",
+    "Inside Neck Print T-shirt",
+    "Classic-Long-Sleeve",
+    "Standard-Sweatshirt",
+    "Classic-Hoodie",
+    "Premium-T-Shirt",
+    "Youth T-shirt"
+  ],
+  "clothingMultipleMatchPreference": "Classic-T-Shirt",
+  "gmcExactMap": {
+    "car ornament": "Car Ornament"
+  },
+  "gmcFallbackContainsMappings": [
+    {
+      "contains": "ornament",
+      "productType": "Ornament"
+    }
+  ]
+}

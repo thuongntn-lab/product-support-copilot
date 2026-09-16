@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: customall-lark-lookup
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: LARK_AUTH_MODE
+        value: app
+      - key: LARK_APP_ID
+        sync: false
+      - key: LARK_APP_SECRET
+        sync: false
+      - key: LOOKUP_API_KEY
+        sync: false
+      - key: SHIPPING_SPREADSHEET_TOKEN
+        value: SYgqsyVjfhlk9TtcWYFjQHsOpoh
+      - key: SHIPPING_SHEET_ID
+        value: e43XxR
+      - key: SHIPPING_RANGE
+        value: A:E
+      - key: GMC_SPREADSHEET_TOKEN
+        value: GDaOsqfbYh8C4rtSOikjerjLpsh
+      - key: GMC_SHEET_ID
+        value: 37d598
+      - key: GMC_RANGE
+        value: A:G

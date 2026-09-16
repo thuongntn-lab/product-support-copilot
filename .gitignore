@@ -1,0 +1,13 @@
+.docx-review/
+.test-output.zip
+output/
+release/
+server/.env
+server/data/
+server/auth-qr*.png
+server/*-diagnostic.log
+server/shared-lan.*.log
+*.log
+.tmp-*/
+*.diff
+server/node_modules/
