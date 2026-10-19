@@ -23,6 +23,7 @@
       <button class="tab" data-tab="campaign">MVP5 · Campaign</button>
       <button class="tab" data-tab="tib">MVP6 · TIB Labels</button>
       <button class="tab" data-tab="tib-campaign">MVP7 · TIB Campaign</button>
+      <button class="tab" data-tab="url-check">MVP8 · URL Check</button>
     </nav>
 
     <main>
@@ -588,6 +589,30 @@
           <div id="history-list" class="history-list">
             <p class="muted">Chưa có session.</p>
           </div>
+        </div>
+      </section>
+
+      <section id="url-check-panel" class="panel">
+        <div class="context-card">
+          <div>
+            <p class="step-label">SHOPIFY PRODUCT</p>
+            <strong>Kiểm tra các URL sau khi upload</strong>
+          </div>
+          <button id="refresh-redirect-url" class="icon-button" title="Đọc lại các URL từ Shopify Product hiện tại">↻</button>
+        </div>
+        <div class="form-card">
+          <p class="step-label">01 · CHECK URL</p>
+          <h2>URL metafields</h2>
+          <p class="muted">Tự nhận diện mọi metafield có URL thật trên Product hiện tại. Chỉ mở tab mới, không sửa metafield Shopify.</p>
+          <div id="shopify-url-list" class="url-list">
+            <p class="muted">Chưa đọc URL metafield. Bấm ↻ để quét Product.</p>
+          </div>
+          <label>
+            Thêm URL kiểm tra thủ công
+            <input id="redirect-url-input" type="url" placeholder="https://example.com/product" autocomplete="off" />
+          </label>
+          <button id="open-redirect-url" class="primary-button" type="button">Mở URL thủ công</button>
+          <p id="redirect-url-feedback" class="upload-feedback" role="status"></p>
         </div>
       </section>
 

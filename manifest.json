@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Product Support Copilot",
-  "version": "0.18.2",
+  "version": "0.18.45",
   "description": "Support Product Support workflows across Customall, Shopify, and live Lark product data.",
   "minimum_chrome_version": "114",
   "permissions": [
@@ -19,7 +19,9 @@
     "https://admin.shopify.com/*",
     "https://*.myshopify.com/*",
     "https://*.teeinblue.com/*",
-    "http://192.168.88.4/*"
+    "http://192.168.88.4/*",
+    "http://192.168.10.2/*",
+    "http://Sadie.local/*"
   ],
   "optional_host_permissions": [
     "http://localhost/*",
@@ -47,13 +49,21 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://*.customall.io/*"],
-      "js": ["src/content/customall.js"],
+      "matches": [
+        "https://*.customall.io/*"
+      ],
+      "js": [
+        "src/content/customall.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://*.teeinblue.com/*"],
-      "js": ["src/content/teeinblue.js"],
+      "matches": [
+        "https://*.teeinblue.com/*"
+      ],
+      "js": [
+        "src/content/teeinblue.js"
+      ],
       "run_at": "document_idle",
       "all_frames": true,
       "match_origin_as_fallback": true
@@ -63,7 +73,9 @@
         "https://admin.shopify.com/*",
         "https://*.myshopify.com/*"
       ],
-      "js": ["src/content/shopify.js"],
+      "js": [
+        "src/content/shopify.js"
+      ],
       "run_at": "document_idle",
       "all_frames": true,
       "match_origin_as_fallback": true

@@ -1,5 +1,5 @@
-const TELEMETRY_DEFAULT_ENDPOINT = "http://192.168.88.4:8787";
-const TELEMETRY_DEFAULT_KEY = "";
+const TELEMETRY_DEFAULT_ENDPOINT = "http://192.168.10.2:8787";
+const TELEMETRY_DEFAULT_KEY = "4c0dc3b933b06f2368f1ae7fec22f2148832478aaaaf694e877ca38180fe3766";
 let lastTelemetrySentAt = 0;
 
 async function sendTelemetryHeartbeat(force = false, mvp = "") {
@@ -233,20 +233,30 @@ async function scriptingPoint(tabId, descriptor) {
           (item) =>
             visible(item) &&
             item.matches("input, [role=searchbox]") &&
-            normalize(item.getAttribute("placeholder")).includes("find pages")
+            ["find pages", "search pages"].some((label) =>
+              normalize(item.getAttribute("placeholder")).includes(label)
+            )
         );
       } else if (request.kind === "page-picker-button") {
         element = elements.find((item) => {
           if (
             !visible(item) ||
             !item.matches(
-              "button, [role=button], s-button, ui-button, polaris-button, s-internal-button"
+              "button, [role=button], s-button, ui-button, polaris-button, s-internal-button, s-internal-quick-single-picker-field, s-internal-quick-activator"
             )
           ) {
             return false;
           }
           const text = textOf(item);
-          return text === "select page" || text === "change";
+          const aria = normalize(
+            item.getAttribute("aria-label") || item.getAttribute("accessibilitylabel")
+          );
+          return (
+            (aria === "shipping page" && text === "add") ||
+            (aria === "shipping page" && item.matches("s-internal-quick-single-picker-field, s-internal-quick-activator")) ||
+            text === "select page" ||
+            text === "change"
+          );
         });
       } else if (request.kind === "page-option") {
         const needle = normalize(request.code);
@@ -256,19 +266,23 @@ async function scriptingPoint(tabId, descriptor) {
           "i"
         );
         element = elements
-          .filter(
-            (item) =>
-              visible(item) &&
-              item.matches("s-internal-picker-option, [role=option]")
+          .filter((item) =>
+            item.matches("s-internal-picker-option, [role=option]")
           )
           .map((item) => {
             const text = textOf(item);
             let score = token.test(text) ? 10 : 0;
             if (text.includes(`(${needle})`)) score += 20;
             if (text.includes("shipping")) score += 5;
-            return { item, score };
+            const shadowTargets = item.shadowRoot
+              ? [...item.shadowRoot.querySelectorAll('[role="row"], [role="option"], button')]
+              : [];
+            const target = visible(item)
+              ? item
+              : shadowTargets.find((candidate) => visible(candidate));
+            return { item: target, score };
           })
-          .filter(({ score }) => score > 0)
+          .filter(({ item, score }) => item && score > 0)
           .sort((left, right) => right.score - left.score)[0]?.item;
       } else if (request.kind === "category-option") {
         const leaf = normalize(request.leaf);
@@ -361,21 +375,38 @@ async function scriptingActivateShippingAnchor(tabId) {
       const anchor = document.getElementById(
         "PRODUCT.metafields.custom.shipping_page-anchor"
       );
-      if (!anchor) return null;
-      const candidates = [
-        ...anchor.querySelectorAll(
-          'a, button, [role="button"], [tabindex], s-button, ui-button, polaris-button'
-        )
-      ].filter(visible);
-      const element =
-        candidates.find(
-          (item) =>
-            normalize(item.innerText || item.textContent) === "shipping page"
-        ) ||
-        candidates.find((item) =>
-          normalize(item.getAttribute("aria-label")).includes("shipping page")
-        ) ||
-        (visible(anchor) ? anchor : null);
+      if (!anchor) {
+        const edit = [...document.querySelectorAll(
+          'button, [role="button"], s-button, ui-button, polaris-button'
+        )].find((item) => {
+          if (!visible(item)) return false;
+          const labels = [item.innerText, item.textContent, item.getAttribute("aria-label"), item.getAttribute("data-testid")]
+            .map(normalize).filter(Boolean);
+          return labels.some((label) => label === "edit shipping page metafield" || label.startsWith("edit shipping page metafield "));
+        });
+        if (!edit) return null;
+        edit.click();
+        return { tag: edit.tagName, mode: "edit-metafield" };
+      }
+      const candidates = [];
+      const walk = (root) => {
+        for (const item of root.querySelectorAll("*")) {
+          candidates.push(item);
+          if (item.shadowRoot) walk(item.shadowRoot);
+        }
+      };
+      walk(anchor);
+      const element = candidates.find((item) => {
+        if (!visible(item)) return false;
+        const text = normalize(item.innerText || item.textContent);
+        const aria = normalize(
+          item.getAttribute("aria-label") || item.getAttribute("accessibilitylabel")
+        );
+        return (
+          (aria === "shipping page" && text === "add") ||
+          (aria === "shipping page" && item.matches?.("s-internal-quick-single-picker-field, s-internal-quick-activator"))
+        );
+      });
       if (!element) return null;
 
       element.scrollIntoView({
@@ -392,15 +423,18 @@ async function scriptingActivateShippingAnchor(tabId) {
         buttons: 1,
         view: window
       };
-      element.dispatchEvent(new PointerEvent("pointerdown", eventOptions));
-      element.dispatchEvent(new MouseEvent("mousedown", eventOptions));
-      element.dispatchEvent(
+      const target = element.matches?.("s-internal-quick-single-picker-field")
+        ? element.shadowRoot?.querySelector?.('s-internal-quick-activator[accessibilitylabel="Shipping Page"]') || element
+        : element;
+      target.dispatchEvent(new PointerEvent("pointerdown", eventOptions));
+      target.dispatchEvent(new MouseEvent("mousedown", eventOptions));
+      target.dispatchEvent(
         new PointerEvent("pointerup", { ...eventOptions, buttons: 0 })
       );
-      element.dispatchEvent(
+      target.dispatchEvent(
         new MouseEvent("mouseup", { ...eventOptions, buttons: 0 })
       );
-      element.dispatchEvent(
+      target.dispatchEvent(
         new MouseEvent("click", { ...eventOptions, buttons: 0 })
       );
       return {
@@ -437,6 +471,12 @@ async function debuggerAccessibilityPoint(tabId, descriptor) {
       const name = normalize(node.name?.value);
       const value = normalize(node.value?.value);
       const text = normalize(`${name} ${value}`);
+      const properties = Object.fromEntries(
+        (node.properties || []).map((property) => [
+          property.name,
+          normalize(property.value?.value)
+        ])
+      );
       let score = 0;
       if (descriptor.kind === "shipping-anchor") {
         if (
@@ -448,14 +488,22 @@ async function debuggerAccessibilityPoint(tabId, descriptor) {
       } else if (descriptor.kind === "page-picker-button") {
         if (
           ["button", "link"].includes(role) &&
-          (name === "select page" || name === "change")
+          (
+            (name === "shipping page" && properties.hasPopup === "listbox") ||
+            name === "select page" ||
+            name === "change"
+          )
         ) {
-          score = name === "select page" ? 60 : 50;
+          score = name === "shipping page" ? 80 : name === "select page" ? 60 : 50;
         }
       } else if (descriptor.kind === "page-search") {
         if (
           ["searchbox", "textbox", "combobox"].includes(role) &&
-          text.includes("find pages")
+          (
+            text.includes("find pages") ||
+            text.includes("search pages") ||
+            name === "shipping page"
+          )
         ) {
           score = 60;
         }
@@ -466,7 +514,7 @@ async function debuggerAccessibilityPoint(tabId, descriptor) {
           `(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`,
           "i"
         );
-        if (["option", "listitem", "button"].includes(role) && token.test(text)) {
+        if (["option", "listitem", "button", "row", "gridcell"].includes(role) && token.test(text)) {
           score = 40;
           if (text.includes(`(${code})`)) score += 30;
           if (text.includes("shipping")) score += 10;
@@ -504,6 +552,8 @@ async function debuggerAccessibilityPoint(tabId, descriptor) {
         }
       } else if (descriptor.kind === "save") {
         if (role === "button" && name === "save") score = 60;
+      } else if (descriptor.kind === "shipping-done") {
+        if (role === "button" && (name === "done" || text === "done")) score = 80;
       }
       return { node, score };
     })
@@ -663,22 +713,27 @@ async function fillTrustedShippingPage(tabId, pageCode) {
   if (!code) return { filled: false, missing: false, stage: "empty" };
 
   const pagePickerFinder = `return elements.find((element) => {
-    if (
-      !visible(element) ||
-      !element.matches(
-        "button, [role=button], s-button, ui-button, polaris-button, s-internal-button"
-      )
-    ) {
-      return false;
-    }
-    const text = normalize(element.innerText || element.textContent || element.getAttribute("aria-label"));
+    if (!visible(element)) return false;
+    const text = normalize(element.innerText || element.textContent);
+    const aria = normalize(element.getAttribute("aria-label") || element.getAttribute("accessibilitylabel"));
+    if (aria === "shipping page" && text === "add") return true;
+    if (aria === "shipping page" && element.matches?.("s-internal-quick-single-picker-field, s-internal-quick-activator")) return true;
+    if (!element.matches("button, [role=button], s-button, ui-button, polaris-button, s-internal-button")) return false;
     return text === "select page" || text === "change";
   });`;
   const pageSearchFinder = `return elements.find((element) =>
     visible(element) &&
     element.matches("input, [role=searchbox]") &&
-    normalize(element.getAttribute("placeholder")).includes("find pages")
+    ["find pages", "search pages"].some((label) =>
+      normalize(element.getAttribute("placeholder")).includes(label)
+    )
   );`;
+  const pageEditFinder = `return elements.find((element) => {
+    if (!visible(element) || !element.matches("button, [role=button], s-button, ui-button, polaris-button")) return false;
+    const labels = [element.innerText, element.textContent, element.getAttribute("aria-label"), element.getAttribute("data-testid")]
+      .map(normalize).filter(Boolean);
+    return labels.some((label) => label === "edit shipping page metafield" || label.startsWith("edit shipping page metafield "));
+  });`;
 
   let search = await debuggerPoint(
     tabId,
@@ -694,29 +749,45 @@ async function fillTrustedShippingPage(tabId, pageCode) {
     if (!openPicker) {
       const domActivation = await scriptingActivateShippingAnchor(tabId);
       await debuggerWait(350);
+      search = await debuggerPoint(tabId, pageSearchFinder, { kind: "page-search-after-edit" });
       openPicker = await debuggerWaitForPoint(
         tabId,
         pagePickerFinder,
         { kind: "page-picker-button" },
         3500
       );
-      if (!openPicker) {
+      if (!openPicker && !search) {
+        const editControl = await debuggerPoint(tabId, pageEditFinder, { kind: "shipping-page-edit" });
+        if (editControl) {
+          await debuggerClick(tabId, editControl);
+          await debuggerWait(350);
+          openPicker = await debuggerWaitForPoint(
+            tabId,
+            pagePickerFinder,
+            { kind: "page-picker-button" },
+            3500
+          );
+        }
+      }
+      if (!openPicker && !search) {
         const anchor = await debuggerPoint(
           tabId,
           `const anchor = document.getElementById("PRODUCT.metafields.custom.shipping_page-anchor");
           if (!anchor) return null;
-          const candidates = [
-            ...anchor.querySelectorAll(
-              'a, button, [role="button"], [tabindex], s-button, ui-button, polaris-button'
-            )
-          ].filter(visible);
-          return candidates.find((element) =>
-            normalize(element.innerText || element.textContent) === "shipping page"
-          ) ||
-            candidates.find((element) =>
-              normalize(element.getAttribute("aria-label")).includes("shipping page")
-            ) ||
-            (visible(anchor) ? anchor : null);`,
+          const candidates = [];
+          const walk = (root) => {
+            for (const element of root.querySelectorAll("*")) {
+              candidates.push(element);
+              if (element.shadowRoot) walk(element.shadowRoot);
+            }
+          };
+          walk(anchor);
+          return candidates.find((element) => {
+            if (!visible(element) || !element.matches?.('button, [role="button"]')) return false;
+            const text = normalize(element.innerText || element.textContent);
+            const aria = normalize(element.getAttribute("aria-label") || element.getAttribute("accessibilitylabel"));
+            return aria === "shipping page" && text === "add";
+          });`,
           { kind: "shipping-anchor" }
         );
         if (!anchor) {
@@ -800,7 +871,7 @@ async function fillTrustedShippingPage(tabId, pageCode) {
     const escaped = needle.replace(/[.*+?^$\\{\\}()|[\\]\\\\]/g, "\\\\$&");
     const token = new RegExp("(^|[^a-z0-9])" + escaped + "([^a-z0-9]|$)", "i");
     const options = elements.filter((element) =>
-      visible(element) && element.matches("s-internal-picker-option, [role=option]")
+      element.matches("s-internal-picker-option, [role=option]")
     );
     return options
       .map((element) => {
@@ -808,9 +879,15 @@ async function fillTrustedShippingPage(tabId, pageCode) {
         let score = token.test(text) ? 10 : 0;
         if (text.includes("(" + needle + ")")) score += 20;
         if (text.includes("shipping")) score += 5;
-        return { element, score };
+        const shadowTargets = element.shadowRoot
+          ? [...element.shadowRoot.querySelectorAll('[role="row"], [role="option"], button')]
+          : [];
+        const target = visible(element)
+          ? element
+          : shadowTargets.find((candidate) => visible(candidate));
+        return { element: target, score };
       })
-      .filter((item) => item.score > 0)
+      .filter((item) => item.element && item.score > 0)
       .sort((left, right) => right.score - left.score)[0]?.element;`,
     { kind: "page-option", code },
     6000
@@ -948,6 +1025,27 @@ async function saveTrustedShopifyProduct(tabId) {
   return { ok: true };
 }
 
+async function clickTrustedShopifyDone(tabId) {
+  return withShopifyDebugger(tabId, async () => {
+    const finder = `return elements.find((element) => {
+      if (!visible(element) || !element.matches("button, [role=button], s-button, ui-button, polaris-button")) return false;
+      const text = normalize(element.innerText || element.textContent || element.getAttribute("aria-label"));
+      return text === "done";
+    });`;
+    const point = await debuggerWaitForPoint(
+      tabId,
+      finder,
+      { kind: "shipping-done" },
+      3500,
+      120
+    );
+    if (!point) return false;
+    await debuggerClick(tabId, point);
+    await debuggerWait(500);
+    return true;
+  });
+}
+
 async function withShopifyDebugger(tabId, task) {
   const target = debuggerTarget(tabId);
   await chrome.debugger.attach(target, "1.3");
@@ -1012,22 +1110,11 @@ async function fillTrustedShopifyGiftbox(tabId, productHandle) {
       const all = [];
       const walk = (root) => { for (const el of root.querySelectorAll("*")) { all.push(el); if (el.shadowRoot) walk(el.shadowRoot); } };
       walk(document);
-      const giftboxAnchor = document.getElementById("PRODUCT.metafields.custom.giftbox-anchor");
-      const editGiftbox = all.find((el) => visible(el) && norm(el.getAttribute?.("aria-label")) === "edit giftbox metafield") ||
-        giftboxAnchor?.querySelector?.('[role="button"]');
-      if (editGiftbox) {
-        editGiftbox.click();
-        await wait(350);
-        all.length = 0;
-        walk(document);
-      }
-      const isGiftboxText = (value) => /gift\\s*box/i.test(norm(value));
-      const labels = all.filter((el) => visible(el) && isGiftboxText(el.innerText || el.textContent));
-      const inputs = all.filter((el) => visible(el) && el.matches("input:not([type=hidden]), textarea, [contenteditable=true], [role=textbox]"));
       const compactName = (value) => norm(value).replace(/[^a-z0-9]/g, "");
       const giftboxNamed = (el) => {
         const names = [
           el.getAttribute?.("aria-label"),
+          el.getAttribute?.("accessibilitylabel"),
           el.getAttribute?.("name"),
           el.id,
           el.getAttribute?.("data-label"),
@@ -1042,43 +1129,37 @@ async function fillTrustedShopifyGiftbox(tabId, productHandle) {
         ];
         return names.some((value) => compactName(value).includes("giftbox"));
       };
-      const namedHost = all.find(giftboxNamed);
-      let field = inputs.find(giftboxNamed) ||
-        namedHost?.shadowRoot?.querySelector?.("input:not([type=hidden]), textarea, [contenteditable=true], [role=textbox]") ||
-        namedHost?.querySelector?.("input:not([type=hidden]), textarea, [contenteditable=true], [role=textbox]");
-      const byId = new Map(inputs.filter((input) => input.id).map((input) => [input.id, input]));
-      const labelTextById = new Map(all.filter((el) => el.id && el.tagName === "LABEL").map((label) => [label.id, label.textContent || ""]));
-      if (!field) {
-        field = inputs.find((input) => {
-          const labelledBy = String(input.getAttribute?.("aria-labelledby") || "").split(/\\s+/).filter(Boolean);
-          return labelledBy.some((id) => isGiftboxText(labelTextById.get(id)));
-        }) || null;
+      const giftboxAnchor = document.getElementById("PRODUCT.metafields.custom.giftbox-anchor");
+      if (giftboxAnchor) {
+        giftboxAnchor.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
+        await wait(300);
       }
-      if (!field) {
-        for (const label of labels) {
-          const linkedId = label.getAttribute?.("for") || label.getAttribute?.("aria-controls");
-          const linked = linkedId ? byId.get(linkedId) : null;
-          if (linked) { field = linked; break; }
-          if (label.control && inputs.includes(label.control)) { field = label.control; break; }
-          const container = label.closest?.("label, fieldset, [role=group], [class*=field], [class*=metafield], [data-field]");
-          const localInputs = inputs.filter((input) => container?.contains?.(input));
-          if (localInputs.length === 1) { field = localInputs[0]; break; }
-        }
+      const findGiftboxHost = () => {
+        const scoped = giftboxAnchor
+          ? [giftboxAnchor, ...giftboxAnchor.querySelectorAll("*")]
+          : [];
+        const exact = [...scoped, ...all].find((el) => giftboxNamed(el) &&
+          (el.matches?.("s-internal-quick-text-field, input, textarea, [role=textbox], [contenteditable=true]") ||
+            el.getAttribute?.("accessibilitylabel")));
+        return exact || scoped.find((el) => compactName(el.getAttribute?.("accessibilitylabel")) === "giftbox") || null;
+      };
+      const fieldFromGiftboxHost = (host) => {
+        const root = host?.shadowRoot;
+        return root?.querySelector?.('input:not([type="hidden"]), textarea, [contenteditable="true"], [role="textbox"]') ||
+          (host?.matches?.('input, textarea, [contenteditable="true"], [role="textbox"]') ? host : null);
+      };
+      let namedHost = findGiftboxHost();
+      let field = fieldFromGiftboxHost(namedHost);
+      if ((!field || !visible(field)) && namedHost) {
+        const activationTarget = namedHost.shadowRoot?.querySelector?.("fieldset, .field-root") || namedHost;
+        activationTarget.click?.();
+        await wait(350);
+        all.length = 0;
+        walk(document);
+        namedHost = findGiftboxHost();
+        field = fieldFromGiftboxHost(namedHost);
       }
-      if (!field) {
-        let best = Infinity;
-        for (const label of labels) {
-          const lr = label.getBoundingClientRect();
-          const lcx = lr.left + lr.width / 2;
-          const lcy = lr.top + lr.height / 2;
-          for (const input of inputs) {
-            const ir = input.getBoundingClientRect();
-            const distance = Math.hypot((ir.left + ir.width / 2) - lcx, (ir.top + ir.height / 2) - lcy);
-            if (distance < best) { best = distance; field = input; }
-          }
-        }
-      }
-      if (!field) return { ok: false, missing: true, stage: "not-found", debug: { labels: labels.length, inputs: inputs.length, named: Boolean(namedHost) } };
+      if (!field) return { ok: false, missing: true, stage: "giftbox-field-not-found", debug: { named: Boolean(namedHost), anchor: Boolean(giftboxAnchor) } };
       const previous = String(field.value ?? field.textContent ?? "");
       field.focus();
       field.select?.();
@@ -1099,6 +1180,76 @@ async function fillTrustedShopifyGiftbox(tabId, productHandle) {
     })()`;
     const result = await debuggerEvaluateSomewhere(tabId, expression);
     return { ...(result || { ok: false, missing: true, stage: "no-context" }), diagnostics: `devtools@${debuggerExecutionContexts.get(Number(tabId))?.size || 0}ctx` };
+  });
+}
+
+// Shipping ETA is an editor with two different Shopify implementations:
+// PAW presents Add → modal → Done, while WR renders Edit → inline React input.
+// Drive both with DevTools mouse/key events. Calling React's private handler
+// directly did commit WR but also caused a full product-surface re-render.
+async function fillTrustedShopifyShippingEta(tabId, shippingEta) {
+  const value = String(shippingEta || "").trim();
+  if (!value) return { ok: false, missing: false, stage: "empty" };
+
+  return withShopifyDebugger(tabId, async () => {
+    const etaOpenerFinder = `return elements.find((element) => {
+      if (!visible(element) || !element.matches?.("button, [role=button], s-button, ui-button, polaris-button, s-internal-quick-json-field, s-internal-quick-activator")) return false;
+      const aria = normalize(element.getAttribute("aria-label") || element.getAttribute("accessibilitylabel"));
+      const text = normalize(element.innerText || element.textContent);
+      return aria === "edit shipping eta metafield" || (aria === "shipping eta" && (text === "add" || element.matches?.("s-internal-quick-activator")));
+    });`;
+    const etaFieldFinder = `return elements.find((element) => {
+      if (!visible(element) || !element.matches?.("input:not([type=hidden]), textarea, [contenteditable=true], [role=textbox]")) return false;
+      const label = String(element.getAttribute("aria-labelledby") || "").split(/\\s+/).filter(Boolean)
+        .map((id) => document.getElementById(id)?.textContent || "").join(" ");
+      return [element.getAttribute("aria-label"), element.getAttribute("name"), element.id, element.getAttribute("data-label"), element.getAttribute("placeholder"), label]
+        .some((candidate) => /shipping\\s*eta/i.test(normalize(candidate)));
+    });`;
+    const doneFinder = `return elements.find((element) =>
+      visible(element) && element.matches?.("button, [role=button], s-button, ui-button, polaris-button") &&
+      normalize(element.innerText || element.textContent) === "done"
+    );`;
+    const valueCheck = `(async () => {
+      const expected = ${JSON.stringify(value)};
+      const all = [];
+      const walk = (root) => { for (const el of root.querySelectorAll("*")) { all.push(el); if (el.shadowRoot) walk(el.shadowRoot); } };
+      walk(document);
+      const visible = (el) => { const rect = el?.getBoundingClientRect?.(); const style = el ? getComputedStyle(el) : null; return Boolean(rect && rect.width > 2 && rect.height > 2 && style?.display !== "none" && style?.visibility !== "hidden"); };
+      const field = all.find((el) => {
+        if (!visible(el) || !el.matches?.("input:not([type=hidden]), textarea, [contenteditable=true], [role=textbox]")) return false;
+        const label = String(el.getAttribute("aria-labelledby") || "").split(/\\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent || "").join(" ");
+        return [el.getAttribute("aria-label"), el.getAttribute("name"), el.id, label].some((candidate) => /shipping\\s*eta/i.test(String(candidate || "").toLowerCase()));
+      });
+      if (!field) return false;
+      try { return JSON.stringify(JSON.parse(String(field.value ?? field.textContent ?? ""))) === JSON.stringify(JSON.parse(expected)); }
+      catch (_) { return String(field.value ?? field.textContent ?? "").trim() === expected; }
+    })()`;
+
+    let field = await debuggerPoint(tabId, etaFieldFinder, { kind: "shipping-eta-field" });
+    if (!field) {
+      const opener = await debuggerPoint(tabId, etaOpenerFinder, { kind: "shipping-eta-opener" });
+      if (!opener) return { ok: false, missing: true, stage: "editor-not-found" };
+      await debuggerClick(tabId, opener);
+      field = await debuggerWaitForPoint(tabId, etaFieldFinder, { kind: "shipping-eta-field" }, 4500);
+    }
+    if (!field) return { ok: false, missing: true, stage: "field-not-found" };
+
+    await debuggerClick(tabId, field);
+    await debuggerReplaceFocusedText(tabId, value);
+    await debuggerWait(180);
+    const committed = await debuggerEvaluateSomewhere(tabId, valueCheck);
+    if (!committed) return { ok: false, missing: true, stage: "value-not-committed" };
+
+    const done = await debuggerPoint(tabId, doneFinder, { kind: "shipping-done" });
+    if (done) {
+      await debuggerClick(tabId, done);
+      await debuggerWait(420);
+      return { ok: true, missing: false, stage: "done-confirmed", diagnostics: "devtools-input" };
+    }
+    await debuggerCommand(tabId, "Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
+    await debuggerCommand(tabId, "Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
+    await debuggerWait(220);
+    return { ok: true, missing: false, stage: "inline-confirmed", diagnostics: "devtools-input" };
   });
 }
 
@@ -1517,6 +1668,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "OPEN_SHOPIFY_REDIRECT_URL") {
+    let url;
+    try {
+      url = new URL(String(message.url || ""));
+    } catch {
+      sendResponse({ ok: false, error: "Redirect URL không hợp lệ." });
+      return;
+    }
+    if (!["http:", "https:"].includes(url.protocol)) {
+      sendResponse({ ok: false, error: "Chỉ hỗ trợ Redirect URL dùng http hoặc https." });
+      return;
+    }
+    chrome.tabs
+      .create({ url: url.href })
+      .then((tab) => sendResponse({ ok: true, tabId: tab.id, url: url.href }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "FILL_SHOPIFY_TRUSTED_PICKERS") {
     fillTrustedShopifyPickers(message.tabId, message.values)
       .then(sendResponse)
@@ -1531,12 +1701,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "FILL_SHOPIFY_SHIPPING_ETA") {
+    fillTrustedShopifyShippingEta(message.tabId, message.shippingEta)
+      .then(sendResponse)
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "SAVE_SHOPIFY_TRUSTED") {
     withShopifyDebugger(message.tabId, () =>
       saveTrustedShopifyProduct(message.tabId)
     )
       .then(sendResponse)
       .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "CLICK_SHOPIFY_DONE_TRUSTED") {
+    clickTrustedShopifyDone(message.tabId || _sender.tab?.id)
+      .then((clicked) => sendResponse({ ok: Boolean(clicked), clicked: Boolean(clicked) }))
+      .catch((error) => sendResponse({ ok: false, clicked: false, error: error.message }));
     return true;
   }
 

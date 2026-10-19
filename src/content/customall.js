@@ -1640,9 +1640,11 @@ async function openArtworkLabelTarget(target) {
   return { layer, input, selector };
 }
 
-async function commitArtworkLabelTarget(target, next) {
+async function commitArtworkLabelTarget(target, next, initialOpened = null) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const opened = await openArtworkLabelTarget(target);
+    const opened = attempt === 0 && initialOpened
+      ? initialOpened
+      : await openArtworkLabelTarget(target);
     if (!opened.input) return { noLabel: true };
     const expectedLayerId = String(document.querySelector("#id")?.value || "");
     const mainCommit = await chrome.runtime.sendMessage({
@@ -1655,18 +1657,22 @@ async function commitArtworkLabelTarget(target, next) {
         mainCommit?.error || `Customall chưa nhận Label "${next}" trong MAIN world.`
       );
     }
-    await wait(900);
-    const activeLayerId = String(document.querySelector("#id")?.value || "");
-    const currentInput = findArtworkLabelInput(opened.layer, opened.selector);
-    if (
-      String(currentInput?.value || "") === next &&
-      String(mainCommit.reactValue ?? mainCommit.value ?? "") === next &&
-      (!expectedLayerId || activeLayerId === expectedLayerId) &&
-      (!mainCommit.layerId || mainCommit.layerId === expectedLayerId)
-    ) {
-      return { ok: true };
+    // Customall updates React state asynchronously. Poll for the commit and
+    // return as soon as it is visible instead of sleeping a fixed 900ms.
+    const deadline = Date.now() + 1400;
+    while (Date.now() < deadline) {
+      const activeLayerId = String(document.querySelector("#id")?.value || "");
+      const currentInput = findArtworkLabelInput(opened.layer, opened.selector);
+      if (
+        String(currentInput?.value || "") === next &&
+        String(mainCommit.reactValue ?? mainCommit.value ?? "") === next &&
+        (!expectedLayerId || activeLayerId === expectedLayerId) &&
+        (!mainCommit.layerId || mainCommit.layerId === expectedLayerId)
+      ) {
+        return { ok: true };
+      }
+      await wait(100);
     }
-    await wait(180);
   }
   return { ok: false };
 }
@@ -1754,7 +1760,7 @@ async function replaceArtworkLabels(
         result.noMatch.push({ index: targetIndex, name: target.name });
         continue;
       }
-      const committed = await commitArtworkLabelTarget(target, next);
+      const committed = await commitArtworkLabelTarget(target, next, opened);
       if (committed.noLabel) {
         result.noLabel.push({ index: targetIndex, name: target.name });
         continue;

@@ -55,11 +55,37 @@ assert.match(
 );
 assert.match(
   shopifyContentScript,
-  /fillShopifyJsonMetafield[\s\S]*?includeMarked: true[\s\S]*?verifyDeadline[\s\S]*?field\.isConnected/
+  /fillShopifyJsonMetafield[\s\S]*?currentShippingEtaField[\s\S]*?filter\(visibleShopifyElement\)[\s\S]*?verifyDeadline[\s\S]*?field\.isConnected/
 );
 assert.match(
   shopifyContentScript,
   /A failed attempt must never block[\s\S]*?removeAttribute\("data-customall-lark-attempted"\)/
+);
+// WR can leave the all-metafields editor open after Giftbox. Shipping ETA must
+// use the already-visible labelled textarea before requiring a row anchor, and
+// only PAW's explicit modal should trigger a Done click.
+assert.match(
+  shopifyContentScript,
+  /let field = currentShippingEtaField\(\);[\s\S]*?if \(!field\) \{[\s\S]*?const anchor = shippingEtaAnchor\(\)/
+);
+assert.match(
+  shopifyContentScript,
+  /if \(!shippingEtaDoneControl\(\)\) return false;/
+);
+assert.match(
+  shopifyContentScript,
+  /const requiresDone = Boolean\(shippingEtaDoneControl\(\)\);[\s\S]*?blur: !requiresDone[\s\S]*?if \(requiresDone\) await clickShippingEtaDone\(\)/
+);
+
+// MVP4 must never overlap Shopify editors. Its stable runner follows the PS
+// sequence: Category → GMC Color/Material → Giftbox → Shipping ETA → Page.
+assert.match(
+  sidepanelScript,
+  /await runPickerStage\("Category"[\s\S]*?await runContentStage\("GMC Color"[\s\S]*?await runContentStage\("GMC Material"[\s\S]*?await runStage\("Giftbox"[\s\S]*?await runContentStage\("Shipping ETA"[\s\S]*?await runPickerStage\("Shipping Page"/
+);
+assert.match(
+  sidepanelScript,
+  /const runStage = async \(label, task\)[\s\S]*?await ensureSameProduct\(\)[\s\S]*?if \(stage\?\.filled\)/
 );
 
 // MVP6 Teeinblue label editor scans every layer, immediately applies all literal
@@ -396,11 +422,11 @@ assert.match(
   /function tibCampaignMockups[\s\S]*?\^mk-\(\?:\\d\+\(\?:-\(\?:default\|df\|detail\|review\)\)\?\|default\|df\|detail\|review\)\$\/i/
 );
 // Gift Box filling must not depend on PAW/WR metafield column placement.
-assert.match(backgroundScript, /const linkedId = label\.getAttribute\?\.(?:\("for"\)|\("aria-controls"\))/);
-assert.match(backgroundScript, /const container = label\.closest\?\./);
-assert.match(backgroundScript, /Math\.hypot\(\(ir\.left \+ ir\.width \/ 2\)/);
 assert.match(backgroundScript, /data-metafield-key/);
 assert.match(backgroundScript, /compactName\(value\)\.includes\("giftbox"\)/);
+assert.match(backgroundScript, /getAttribute\?\.\("accessibilitylabel"\)/);
+assert.match(backgroundScript, /s-internal-quick-text-field\[accessibilitylabel=\\"giftbox\\"\]/);
+assert.match(backgroundScript, /giftbox-field-not-found/);
 assert.match(backgroundScript, /PRODUCT\.metafields\.custom\.giftbox-anchor/);
 assert.match(backgroundScript, /aria-labelledby/);
 

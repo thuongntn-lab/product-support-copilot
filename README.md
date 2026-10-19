@@ -7,6 +7,7 @@ Chrome Extension Manifest V3 triển khai ba luồng nội bộ:
 - **MVP1 — Smart Clipart Importer:** đọc folder, validate ảnh/cấu trúc, phát hiện duplicate, chuẩn hóa tên, truyền trực tiếp các file vào `Import from folder`, và xuất CSV report.
 - **MVP3 — Shopify Mockup Ads:** nhận diện store/Product ID, đổi tên mockup theo Product ID, tải file đã chuẩn hóa xuống máy, mở Shopify Content → Files và highlight nút upload.
 - **MVP4 — Lark Live Product Data:** dò Product Type trong hai Lark Sheet gốc và trả về Shipping Page/ETA Code cùng GMC Color/Material/Category tại thời điểm bấm.
+- **MVP8 — URL Check:** quét Mockup Ads, Redirect URL và các link URL hợp lệ trên Shopify Product, hiển thị thành danh sách để mở từng tab; vẫn hỗ trợ nhập URL thủ công mà không sửa metafield.
 - Khi điền Shopify: GMC Material/Color dùng single-line text, Shipping ETA dùng JSON, Shipping Page dùng Page reference picker, và Category dùng `Category breadcrumb`.
 - Category và Shipping Page dùng picker nội bộ của Shopify: extension tự nhập/lọc, tự chọn đúng option tương ứng với Lark và tự Save sau khi xác minh.
 
@@ -110,9 +111,10 @@ Metafields/View all rồi mới điền. Sau khi cập nhật extension, cần r
 content script mới được nạp. Extension quét cả frame chính và các iframe Shopify
 (`admin.shopify.com`/`myshopify.com`) để tìm đúng bốn metafield.
 
-Trước khi dùng, mở `Cấu hình kết nối`, nhập URL HTTPS của Lark Lookup API và API key
-do quản trị viên cung cấp, rồi bấm `Lưu & kiểm tra`. Secret của Lark app chỉ được đặt ở
-backend, không được chép vào extension. Xem `TEAM_GUIDE_MVP4.md` và `server/README.md`.
+Extension đã có sẵn URL/API key nội bộ mặc định. Người dùng chỉ cần mở tab MVP4;
+nếu API được đổi, quản trị viên có thể cập nhật trong `Cấu hình kết nối`. Secret của
+Lark app chỉ được đặt ở backend, không được chép vào extension. Xem
+`TEAM_GUIDE_MVP4.md` và `server/README.md`.
 
 ## Giới hạn hiện tại
 

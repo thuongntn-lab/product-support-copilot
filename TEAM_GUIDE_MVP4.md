@@ -60,13 +60,10 @@ extension rồi thử lại. Bản mới sẽ tự tìm nút View all/Manage tro
 
 ## Cấu hình một lần
 
-Quản trị viên cung cấp:
-
-- URL HTTPS của Lark Lookup API.
-- API key nội bộ.
-
-Trong tab MVP4, mở `Cấu hình kết nối`, nhập hai giá trị trên và bấm
-`Lưu & kiểm tra`. Chrome sẽ hỏi quyền truy cập đúng domain API ở lần đầu.
+Bản extension nội bộ đã có sẵn URL và API key của Lookup API. Người dùng chỉ
+cần mở tab MVP4 và bấm `Đọc Lark & điền Shopify`. Nếu quản trị viên thay đổi
+endpoint hoặc key, quản trị viên cập nhật trong `Cấu hình kết nối`; không nhập
+Lark App Secret vào extension.
 
 Không nhập Lark App Secret vào extension hoặc gửi secret qua chat.
 

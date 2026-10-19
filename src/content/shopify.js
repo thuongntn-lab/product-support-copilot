@@ -110,6 +110,226 @@ function normalizeFieldLabel(value) {
     .trim();
 }
 
+function isRedirectUrlMetafield(element) {
+  const key = String(element?.getAttribute?.("data-metafield-key") || "")
+    .toLowerCase()
+    .replace(/_/g, "-");
+  const id = String(element?.id || "").toLowerCase().replace(/_/g, "-");
+  return (
+    /(?:^|[-.])custom-redirect-url$/.test(key) ||
+    /(?:^|\.)custom\.redirect-url-anchor$/.test(id)
+  );
+}
+
+function readDeepTextValue(root) {
+  const controls = queryAllDeep(
+    'input:not([type="hidden"]), textarea, [contenteditable="true"], [role="textbox"]',
+    root
+  );
+  const controlValue = controls
+    .map((control) => String(control.value ?? control.textContent ?? "").trim())
+    .find(Boolean);
+  if (controlValue) return controlValue;
+  return String(root?.innerText || root?.textContent || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractHttpUrls(value) {
+  const text = String(value || "").replace(/[<>\[\]{}]/g, " ");
+  const matches = text.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+  return [...new Set(matches.map((candidate) => {
+    try {
+      const url = new URL(candidate.replace(/[),.;]+$/, ""));
+      if (!["http:", "https:"].includes(url.protocol)) return "";
+      // Shopify often renders an internal admin link beside the metafield
+      // value. It is not the value stored in the metafield and must not be
+      // exposed as an extra URL candidate.
+      if (url.hostname === "admin.shopify.com") return "";
+      return url.href;
+    } catch {
+      return "";
+    }
+  }).filter(Boolean))];
+}
+
+function normalizeMetafieldKey(value) {
+  return String(value || "").toLowerCase().replace(/_/g, "-").trim();
+}
+
+function readShopifyUrlMetafields() {
+  const results = [];
+  const seen = new Set();
+  // Shopify renders the stored value in s-internal-quick-url-field's Shadow DOM.
+  // Read that field directly; the surrounding row also contains definition and
+  // navigation links which must never be treated as metafield values.
+  const rows = queryAllDeep("[data-metafield-key]");
+  for (const row of rows) {
+    const quickFields = queryAllDeep("s-internal-quick-url-field", row);
+    for (const quickField of quickFields.length ? quickFields : [row]) {
+      const labelValue = quickField.getAttribute?.("accessibilitylabel") ||
+        row.innerText || row.textContent || "";
+      const label = String(labelValue).replace(/\s+/g, " ").trim();
+      if (!label) continue;
+      const fieldKey = normalizeMetafieldKey(row.getAttribute("data-metafield-key"));
+      const fieldRoot = quickField.shadowRoot || quickField;
+      const rawValue = [
+        ...queryAllDeep('input[type="url"], input[aria-label*="url" i]', fieldRoot)
+          .map((input) => input.value),
+        ...queryAllDeep(".display-value", fieldRoot)
+          .map((element) => element.textContent)
+      ].join(" ");
+      for (const url of extractHttpUrls(rawValue)) {
+        const dedupeKey = `${fieldKey}|${url}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        results.push({ label, url, metafieldKey: fieldKey });
+      }
+    }
+  }
+  return results;
+}
+
+function findRedirectUrlAnchor() {
+  return queryAllDeep("[data-metafield-key], [id$='-anchor']").find((element) => {
+    if (!isRedirectUrlMetafield(element)) return false;
+    const label = normalizeFieldLabel(element.innerText || element.textContent);
+    return label === "redirect url" || label.startsWith("redirect url ");
+  }) || null;
+}
+
+function renderRedirectUrlAction() {
+  const anchor = findRedirectUrlAnchor();
+  if (!anchor) return;
+  const value = readDeepTextValue(anchor);
+  let parsed = null;
+  try {
+    const candidate = new URL(value);
+    if (["http:", "https:"].includes(candidate.protocol)) parsed = candidate.href;
+  } catch {
+    parsed = null;
+  }
+
+  let button = anchor.querySelector('[data-customall-redirect-url-open]');
+  if (!button) {
+    button = document.createElement("button");
+    button.type = "button";
+    button.dataset.customallRedirectUrlOpen = "true";
+    button.textContent = "Mở URL ↗";
+    button.setAttribute("aria-label", "Mở Redirect URL trong tab mới");
+    Object.assign(button.style, {
+      marginTop: "8px",
+      minHeight: "30px",
+      padding: "4px 10px",
+      border: "1px solid #ff542e",
+      borderRadius: "8px",
+      color: "#c9362b",
+      background: "#fff7f4",
+      cursor: "pointer",
+      font: "600 12px/1.2 system-ui, sans-serif"
+    });
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const url = button.dataset.url || "";
+      if (!url) return;
+      chrome.runtime.sendMessage({ type: "OPEN_SHOPIFY_REDIRECT_URL", url }).catch(() => {});
+    });
+    anchor.appendChild(button);
+  }
+  button.dataset.url = parsed || "";
+  button.disabled = !parsed;
+  button.title = parsed || "Redirect URL chưa hợp lệ hoặc đang trống";
+  button.style.opacity = parsed ? "1" : "0.45";
+  button.style.cursor = parsed ? "pointer" : "not-allowed";
+}
+
+let redirectUrlRenderQueued = false;
+function queueRedirectUrlAction() {
+  if (redirectUrlRenderQueued) return;
+  redirectUrlRenderQueued = true;
+  queueMicrotask(() => {
+    redirectUrlRenderQueued = false;
+    renderRedirectUrlAction();
+  });
+}
+
+function installRedirectUrlActionObserver() {
+  if (globalThis.__customallRedirectUrlActionInstalled) return;
+  globalThis.__customallRedirectUrlActionInstalled = true;
+  queueRedirectUrlAction();
+  const observer = new MutationObserver(queueRedirectUrlAction);
+  observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+  for (const method of ["pushState", "replaceState"]) {
+    const original = history[method];
+    history[method] = function (...args) {
+      const result = original.apply(this, args);
+      queueRedirectUrlAction();
+      return result;
+    };
+  }
+  window.addEventListener("popstate", queueRedirectUrlAction);
+}
+
+function visibleShopifyElement(element) {
+  if (!element) return false;
+  const rect = element.getBoundingClientRect?.();
+  return Boolean(rect && rect.width > 0 && rect.height > 0);
+}
+
+function findShopifyMetafieldAnchor(fieldKey) {
+  const key = String(fieldKey || "").trim().toLowerCase();
+  if (!key) return null;
+  return queryAllDeep(
+    `[id$="${key}-anchor"], [data-metafield-key="${key}"], [data-metafield-key$=".${key}"]`
+  ).find(visibleShopifyElement) || null;
+}
+
+function findShopifyMetafieldEditControl(fieldLabel) {
+  const expected = normalizeFieldLabel(`edit ${fieldLabel} metafield`);
+  return queryAllDeep(
+    'button, [role="button"], s-button, ui-button, polaris-button'
+  ).find((element) => {
+    if (!visibleShopifyElement(element)) return false;
+    const labels = [
+      element.innerText,
+      element.textContent,
+      element.getAttribute("aria-label"),
+      element.getAttribute("data-testid")
+    ]
+      .map(normalizeFieldLabel)
+      .filter(Boolean);
+    return labels.some((label) => label === expected || label.startsWith(`${expected} `));
+  }) || null;
+}
+
+function findShopifyMetafieldAddControl(anchor, fieldLabel) {
+  if (!anchor) return null;
+  const candidates = queryAllDeep(
+    'button, [role="button"], s-button, ui-button, polaris-button, [role="menuitem"]',
+    anchor
+  ).filter(visibleShopifyElement);
+  const add = candidates.find((element) =>
+    normalizeFieldLabel(element.innerText || "") === "add"
+  );
+  if (add) return add;
+
+  // Some Shopify builds expose the row action as a popup button named after
+  // the field and render the visible Add label in a nested shadow/container.
+  // Only accept this fallback while the rendered row still contains Add.
+  const rowText = normalizeFieldLabel(anchor.innerText || "");
+  if (!/(^| )add( |$)/.test(rowText)) return null;
+  const label = normalizeFieldLabel(fieldLabel);
+  return candidates.find((element) => {
+    const aria = normalizeFieldLabel(element.getAttribute("aria-label"));
+    return (
+      aria === label &&
+      (element.hasAttribute("aria-haspopup") ||
+        element.hasAttribute("aria-expanded"))
+    );
+  }) || null;
+}
+
 function matchesFieldAlias(value, normalizedAliases) {
   const normalized = normalizeFieldLabel(value);
   return normalizedAliases.includes(normalized);
@@ -609,36 +829,51 @@ function findLabeledInteractiveControl(aliases) {
   return findFieldSurfaceByLabel(aliases);
 }
 
-function setEditableValue(element, value, { blur = true } = {}) {
-  const nextValue = String(value ?? "");
-  element.focus({ preventScroll: true });
-  if (element instanceof HTMLInputElement) {
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-    setter?.call(element, nextValue);
-  } else if (element instanceof HTMLTextAreaElement) {
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-    setter?.call(element, nextValue);
-  } else if ("value" in element) {
-    element.value = nextValue;
-  } else {
-    element.textContent = nextValue;
+function editableControl(element) {
+  if (!element) return null;
+  if (element.matches?.("input, textarea, [contenteditable='true']")) return element;
+  const roots = [element, element.shadowRoot].filter(Boolean);
+  for (const root of roots) {
+    const control = root.querySelector?.(
+      "input:not([type='hidden']), textarea, [contenteditable='true']"
+    );
+    if (control && !control.disabled && !control.readOnly) return control;
   }
-  element.dispatchEvent(new InputEvent("input", {
+  return element;
+}
+
+function setEditableValue(element, value, { blur = true } = {}) {
+  const control = editableControl(element);
+  const nextValue = String(value ?? "");
+  control.focus?.({ preventScroll: true });
+  if (control instanceof HTMLInputElement) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(control, nextValue);
+  } else if (control instanceof HTMLTextAreaElement) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    setter?.call(control, nextValue);
+  } else if ("value" in control) {
+    control.value = nextValue;
+  } else {
+    control.textContent = nextValue;
+  }
+  control.dispatchEvent(new InputEvent("input", {
     bubbles: true,
     composed: true,
     inputType: "insertText",
     data: nextValue
   }));
-  element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  control.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
   if (blur) {
-    if (typeof element.blur === "function") element.blur();
-    element.dispatchEvent(new FocusEvent("focusout", { bubbles: true, composed: true }));
+    control.blur?.();
+    control.dispatchEvent(new FocusEvent("focusout", { bubbles: true, composed: true }));
   }
 }
 
 function editableValue(element) {
-  if ("value" in element) return String(element.value ?? "");
-  return String(element.textContent ?? "");
+  const control = editableControl(element);
+  if ("value" in control) return String(control.value ?? "");
+  return String(control.textContent ?? "");
 }
 
 async function commitEditableValue(element, value, { json = false } = {}) {
@@ -659,24 +894,25 @@ async function commitEditableValue(element, value, { json = false } = {}) {
 async function fillShopifyPageReference(pageTitle) {
   if (!pageTitle) return { filled: false, missing: false };
 
-  const visible = (element) => {
-    const rect = element.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  };
-  const control =
-    queryAllDeep(
-      'button, [role="button"], s-button, ui-button, polaris-button'
-    ).find(
-      (element) =>
-        visible(element) &&
-        normalizeFieldLabel(
-          element.textContent || element.getAttribute("aria-label")
-        ) === "select page"
-    ) ||
-    findLabeledInteractiveControl(["shipping page"]);
-  if (!control) return { filled: false, missing: true };
+  const shippingPageAnchor = findShopifyMetafieldAnchor("shipping_page");
+  const shippingPageEditControl = findShopifyMetafieldEditControl("shipping page");
+  if (!shippingPageAnchor && !shippingPageEditControl) {
+    return { filled: false, missing: true };
+  }
+  const visible = visibleShopifyElement;
 
-  clickLikeUser(control);
+  const existingSearch = queryAllDeep(
+    'input:not([type="hidden"]), textarea, [role="textbox"], s-text-field, ui-text-field, polaris-text-field'
+  ).find(
+    (element) =>
+      visible(element) &&
+      fieldDescriptors(element).some((descriptor) => descriptor === "shipping page")
+  );
+  const control = shippingPageAnchor
+    ? findShopifyMetafieldAddControl(shippingPageAnchor, "shipping page")
+    : shippingPageEditControl;
+  if (!existingSearch && !control) return { filled: false, missing: true };
+  if (!existingSearch) clickLikeUser(control);
 
   const normalizedTitle = normalizeFieldLabel(pageTitle);
   let overlay = null;
@@ -711,7 +947,10 @@ async function fillShopifyPageReference(pageTitle) {
         .filter(visible)
         .find((element) => {
           const rect = element.getBoundingClientRect();
-          const controlRect = control.getBoundingClientRect();
+          const controlRect =
+            control?.getBoundingClientRect?.() ||
+            shippingPageAnchor?.getBoundingClientRect?.() ||
+            shippingPageEditControl?.getBoundingClientRect?.();
           return (
             rect.top >= controlRect.bottom - 12 &&
             rect.top <= controlRect.bottom + 220
@@ -809,13 +1048,149 @@ async function fillShopifyJsonMetafield(jsonValue) {
     }
   };
 
+  // The business field is fixed, but Shopify can expose it through different
+  // DOM descriptors depending on the admin layout. Keep one canonical alias
+  // set so label, metafield key, id, and test-id all resolve to the same field.
+  const shippingEtaAliases = [
+    "shipping eta",
+    "shipping eta code",
+    "shipping_eta",
+    "custom.shipping_eta"
+  ];
+
+  // Shopify may render an empty metafield as a row-level Add/Edit control, or
+  // keep its labelled textarea mounted inside WR's all-metafields overlay.
+  // Resolve only the exact Shipping ETA descriptors in either layout.
+  const shippingEtaAnchor = () => findShopifyMetafieldAnchor("shipping_eta");
+  const shippingEtaEditControl = () =>
+    findShopifyMetafieldEditControl("shipping eta");
+  const shippingEtaAddControl = (anchor = shippingEtaAnchor()) =>
+    findShopifyMetafieldAddControl(anchor, "shipping eta");
+
+  const shippingEtaRowHasAdd = (anchor = shippingEtaAnchor()) => {
+    return Boolean(shippingEtaAddControl(anchor));
+  };
+
+  const normalizedShippingEtaAliases = shippingEtaAliases.map(normalizeFieldLabel);
+  const currentShippingEtaField = () =>
+    editableElements()
+      .filter(visibleShopifyElement)
+      .find((element) =>
+        fieldDescriptors(element).some((descriptor) =>
+          matchesFieldAlias(descriptor, normalizedShippingEtaAliases)
+        )
+      ) || null;
+
+  const shippingEtaDoneControl = () =>
+    queryAllDeep(
+      'button, [role="button"], s-button, ui-button, polaris-button'
+    ).find((element) => {
+      if (!visibleShopifyElement(element)) return false;
+      const labels = [
+        element.textContent,
+        element.shadowRoot?.textContent,
+        element.getAttribute("aria-label"),
+        element.getAttribute("data-testid"),
+        element.getAttribute("name")
+      ]
+        .map(normalizeFieldLabel)
+        .filter(Boolean);
+      return labels.some((label) => label === "done");
+    }) || null;
+
+  const openShippingEtaEditor = async () => {
+    const anchor = shippingEtaAnchor();
+    const add = anchor ? shippingEtaAddControl(anchor) : null;
+    const edit = !anchor ? shippingEtaEditControl() : null;
+    if (!add && !edit) return Boolean(anchor && !shippingEtaRowHasAdd(anchor));
+    clickLikeUser(add || edit);
+    const deadline = Date.now() + 2500;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      if (currentShippingEtaField()) return true;
+    }
+    return false;
+  };
+
+  const clickShippingEtaDone = async () => {
+    // PAW mounts Shipping ETA in a modal with an explicit Done button. WR's
+    // metafield overlay exposes the textarea inline and commits through the
+    // product Save flow, so never ask the debugger to click an unrelated Done.
+    if (!shippingEtaDoneControl()) return false;
+
+    // Shopify ignores synthetic DOM clicks for this modal in some admin
+    // layouts. Ask the background debugger to dispatch a trusted mouse event
+    // at the actual AX/DOM button before using the DOM fallback.
+    try {
+      const trusted = await new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          { type: "CLICK_SHOPIFY_DONE_TRUSTED" },
+          (response) => resolve(response?.clicked === true)
+        );
+      });
+      if (trusted) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        return true;
+      }
+    } catch (_error) {
+      // Continue with the in-page fallback when debugger access is unavailable.
+    }
+
+    const deadline = Date.now() + 1800;
+    while (Date.now() < deadline) {
+      const done = queryAllDeep(
+        'button, [role="button"], s-button, ui-button, polaris-button'
+      ).find((element) => {
+        const rect = element.getBoundingClientRect();
+        const labels = [
+          element.textContent,
+          element.shadowRoot?.textContent,
+          element.getAttribute("aria-label"),
+          element.getAttribute("data-testid"),
+          element.getAttribute("name")
+        ]
+          .map(normalizeFieldLabel)
+          .filter(Boolean);
+        return rect.width > 0 && rect.height > 0 && labels.some((label) => /(^| )done( |$)/.test(label));
+      });
+      if (done) {
+        const target =
+          done.shadowRoot?.querySelector?.('button, [role="button"]') || done;
+        clickLikeUser(target);
+        // Shopify's modal sometimes binds the handler on the host while the
+        // visible native button lives in its shadow root. Trigger both paths
+        // once, then let the row-state verifier decide whether it committed.
+        if (target !== done && typeof done.click === "function") done.click();
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    return false;
+  };
+
   // Shopify can replace the metafield input after an input/change event. Always
   // reacquire the live field and verify the persisted value instead of trusting
   // the element that received the first write.
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    let field =
-      findEditableField(["shipping eta"], { includeMarked: true }) ||
-      (await findOrActivateEditable(["shipping eta"]));
+    // WR can already have the all-metafields overlay open (for example after
+    // Giftbox), in which case the Shipping ETA textarea is visible while the
+    // row-level anchor/Edit control is temporarily absent. Use that exact
+    // labelled field first; only open the row when no editor exists yet.
+    let field = currentShippingEtaField();
+    if (!field) {
+      const anchor = shippingEtaAnchor();
+      const edit = !anchor ? shippingEtaEditControl() : null;
+      if (!anchor && !edit) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        continue;
+      }
+      if (!(await openShippingEtaEditor())) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        continue;
+      }
+      field = currentShippingEtaField();
+    }
     if (!field) {
       await new Promise((resolve) => setTimeout(resolve, 250));
       continue;
@@ -828,13 +1203,17 @@ async function fillShopifyJsonMetafield(jsonValue) {
     }
 
     field.setAttribute("data-customall-lark-attempted", "shippingEta");
-    setEditableValue(field, expected);
+    const requiresDone = Boolean(shippingEtaDoneControl());
+    setEditableValue(field, expected, { blur: !requiresDone });
+    if (requiresDone) await clickShippingEtaDone();
 
     const verifyDeadline = Date.now() + 1800;
     while (Date.now() < verifyDeadline) {
       await new Promise((resolve) => setTimeout(resolve, 120));
+      const currentAnchor = shippingEtaAnchor();
+      if (currentAnchor && shippingEtaRowHasAdd(currentAnchor)) continue;
       const liveField =
-        findEditableField(["shipping eta"], { includeMarked: true }) ||
+        currentShippingEtaField() ||
         (field.isConnected ? field : null);
       if (liveField && jsonMatches(editableValue(liveField))) {
         field.removeAttribute("data-customall-lark-attempted");
@@ -842,11 +1221,32 @@ async function fillShopifyJsonMetafield(jsonValue) {
         liveField.setAttribute("data-customall-lark-filled", "shippingEta");
         return { filled: true, missing: false };
       }
+      // After Done Shopify may render the saved value as row text instead of
+      // keeping an input. The absence of `Add` is the authoritative persisted
+      // state for this metafield row.
+      const row = shippingEtaAnchor();
+      const editControl = shippingEtaEditControl();
+      if ((row && !shippingEtaRowHasAdd(row)) || (!row && !editControl)) {
+        field.removeAttribute("data-customall-lark-attempted");
+        (row || editControl || field).setAttribute(
+          "data-customall-lark-filled",
+          "shippingEta"
+        );
+        return { filled: true, missing: false };
+      }
+      // Newer Shopify layouts keep the `Edit … metafield` button mounted after
+      // commit and render the value inside a separate row. Once Done closes the
+      // editor, the exact edit control is the stable persistence marker.
+      if (!row && editControl && !currentShippingEtaField()) {
+        field.removeAttribute("data-customall-lark-attempted");
+        editControl.setAttribute("data-customall-lark-filled", "shippingEta");
+        return { filled: true, missing: false };
+      }
     }
 
     // A failed attempt must never block the next pass from finding this field.
     field.removeAttribute("data-customall-lark-attempted");
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve) => setTimeout(resolve, 350));
   }
   return { filled: false, missing: true };
 }
@@ -975,14 +1375,14 @@ async function fillShopifyProductData(message) {
   const values = message.values || {};
   const mappings = [
     {
-      key: "gmcMaterial",
-      label: "GMC Material",
-      aliases: ["gmc material"]
-    },
-    {
       key: "gmcColor",
       label: "GMC Color",
       aliases: ["gmc color"]
+    },
+    {
+      key: "gmcMaterial",
+      label: "GMC Material",
+      aliases: ["gmc material"]
     }
   ];
 
@@ -1058,7 +1458,12 @@ async function fillShopifyProductData(message) {
     fieldDiagnostics: {
       "GMC Material": inspectFieldCandidates(["gmc material"]),
       "GMC Color": inspectFieldCandidates(["gmc color"]),
-      "Shipping ETA": inspectFieldCandidates(["shipping eta"]),
+      "Shipping ETA": inspectFieldCandidates([
+        "shipping eta",
+        "shipping eta code",
+        "shipping_eta",
+        "custom.shipping_eta"
+      ]),
       "Shipping Page": inspectFieldCandidates(["shipping page"])
     },
     frameUrl: location.href
@@ -1197,6 +1602,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       tags: findProductTags(),
       onFilesPage: /\/content\/files(?:\/|$)/.test(location.pathname)
     });
+    return;
+  }
+
+  if (message?.type === "READ_SHOPIFY_REDIRECT_URL") {
+    const anchor = findRedirectUrlAnchor();
+    const url = anchor ? readDeepTextValue(anchor) : "";
+    let valid = false;
+    try {
+      const parsed = new URL(url);
+      valid = ["http:", "https:"].includes(parsed.protocol);
+    } catch {
+      valid = false;
+    }
+    sendResponse({
+      ok: valid,
+      url: valid ? url : "",
+      metafieldKey: anchor?.getAttribute("data-metafield-key") || "",
+      error: !anchor
+        ? "Không tìm thấy metafield Redirect URL."
+        : "Redirect URL đang trống hoặc không hợp lệ."
+    });
+    return;
+  }
+
+  if (message?.type === "READ_SHOPIFY_URL_METAFIELDS_V2") {
+    const links = readShopifyUrlMetafields();
+    sendResponse({ ok: true, links });
     return;
   }
 

@@ -44,7 +44,7 @@ const DEFAULT_CUSTOMALL_FONTS = [
 
 // Must match the value baked into src/content/teeinblue.js. Unlike the
 // manifest version, this proves that the tab is executing the shared bytecode.
-const TIB_EXPECTED_RUNTIME_FINGERPRINT = "ps-tib-0.18.2-20260914-a";
+const TIB_EXPECTED_RUNTIME_FINGERPRINT = "ps-tib-0.18.5-20261013-d";
 
 const state = {
   clipartFiles: [],
@@ -190,10 +190,18 @@ async function downloadBlob(blob, filename, saveAs = false) {
   }
 }
 
-function setActiveTab(name) {
+function setActiveTab(name, { persist = true } = {}) {
+  if (!document.querySelector(`#${name}-panel`)) return;
   $$(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === name));
   $$(".panel").forEach((panel) => panel.classList.remove("active"));
   $(`#${name}-panel`).classList.add("active");
+  if (!persist) return;
+  try {
+    sessionStorage.setItem("ps-active-mvp-tab", name);
+  } catch {
+    // Session storage can be unavailable in a restricted extension context.
+  }
+  chrome.storage.local.set({ psActiveMvpTab: name }).catch(() => {});
 }
 
 async function runWithConcurrency(items, limit, worker) {
@@ -608,27 +616,107 @@ async function exportReport() {
   await downloadBlob(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }), "customall-clipart-report.csv", true);
 }
 
-async function sendShopifyMessage(tabId, message) {
+async function sendShopifyMessage(tabId, message, options = {}) {
   try {
-    return await chrome.tabs.sendMessage(tabId, message);
+    return await chrome.tabs.sendMessage(tabId, message, options);
   } catch (error) {
     if (!/Receiving end does not exist|Could not establish connection/i.test(error.message)) {
       throw error;
     }
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId, ...(options.frameId == null ? {} : { frameIds: [options.frameId] }) },
       files: ["src/content/shopify.js"]
     });
-    return chrome.tabs.sendMessage(tabId, message);
+    return chrome.tabs.sendMessage(tabId, message, options);
   }
 }
 
+async function readRedirectUrlFromShopify() {
+  const context = await queryActiveContext();
+  if (context?.app !== "shopify" || !context.tabId) {
+    throw new Error("Hãy mở đúng trang Product trong Shopify trước.");
+  }
+  const response = await sendShopifyMessage(context.tabId, {
+    type: "READ_SHOPIFY_REDIRECT_URL"
+  });
+  if (!response?.ok || !response.url) {
+    throw new Error(response?.error || "Không tìm thấy Redirect URL trên Product hiện tại.");
+  }
+  $("#redirect-url-input").value = response.url;
+  return response;
+}
+
+function renderShopifyUrlLinks(links = []) {
+  const list = $("#shopify-url-list");
+  if (!list) return;
+  if (!links.length) {
+    list.innerHTML = '<p class="muted">Không tìm thấy Mockup Ads hoặc Redirect URL hợp lệ trên Product hiện tại.</p>';
+    return;
+  }
+  list.innerHTML = links.map((entry, index) => `
+    <div class="url-entry">
+      <div>
+        <span class="url-entry-label">${escapeHtml(entry.label || `URL ${index + 1}`)}</span>
+        <span class="url-entry-link" title="${escapeHtml(entry.url)}">${escapeHtml(entry.url)}</span>
+      </div>
+      <button type="button" data-shopify-url="${escapeHtml(entry.url)}">Mở ↗</button>
+    </div>
+  `).join("");
+}
+
+async function readShopifyUrlLinks() {
+  const context = await queryActiveContext();
+  if (context?.app !== "shopify" || !context.tabId) {
+    throw new Error("Hãy mở đúng trang Product trong Shopify trước.");
+  }
+  let lastResponse = null;
+  // Shopify Product navigation is SPA-based. The URL can change before the
+  // Product metafield Shadow DOM is painted, so retry the read instead of
+  // forcing the operator to press F5.
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    lastResponse = await sendShopifyMessage(context.tabId, {
+      type: "READ_SHOPIFY_URL_METAFIELDS_V2"
+    }, { frameId: 0 });
+    const links = lastResponse?.links || [];
+    if (links.length) {
+      renderShopifyUrlLinks(links);
+      return links;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  if (!lastResponse?.ok) {
+    throw new Error(lastResponse?.error || "Không đọc được các URL trên Product.");
+  }
+  renderShopifyUrlLinks([]);
+  return [];
+}
+
+async function openRedirectUrlFromPanel() {
+  const input = $("#redirect-url-input");
+  const raw = String(input.value || "").trim();
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("URL không hợp lệ.");
+  }
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("Chỉ hỗ trợ URL http hoặc https.");
+  }
+  const response = await chrome.runtime.sendMessage({
+    type: "OPEN_SHOPIFY_REDIRECT_URL",
+    url: url.href
+  });
+  if (!response?.ok) throw new Error(response?.error || "Không mở được URL.");
+  return response;
+}
+
 const SHOPIFY_LARK_FIELDS = [
-  { key: "gmcMaterial", label: "GMC Material" },
+  { key: "categoryBreadcrumb", label: "Category" },
   { key: "gmcColor", label: "GMC Color" },
+  { key: "gmcMaterial", label: "GMC Material" },
   { key: "shippingEta", label: "Shipping ETA" },
-  { key: "shippingPage", label: "Shipping Page" },
-  { key: "categoryBreadcrumb", label: "Category" }
+  { key: "shippingPage", label: "Shipping Page" }
 ];
 
 async function sendShopifyFillToFrames(tabId, message) {
@@ -762,6 +850,21 @@ async function queryActiveContext() {
       productId: url.match(/\/products\/(\d+)/)?.[1] || null
     };
   }
+  // A content script can be present but return no response on unsupported
+  // pages (for example TeeInBlue's artwork list). Keep initialization safe:
+  // downstream context resolution expects an object, not undefined.
+  if (!context || typeof context !== "object") {
+    const url = String(tab.url || "");
+    context = {
+      app: url.includes("admin.shopify.com") ? "shopify" : "unknown",
+      url,
+      title: tab.title || "",
+      store: url.match(/\/store\/([^/]+)/)?.[1] || null,
+      productId: url.match(/\/products\/(\d+)/)?.[1] || null,
+      productType: "",
+      tags: []
+    };
+  }
   if (context?.app === "shopify") {
     const tabUrlContext = readShopifyContextFromUrl(tab.url);
     const pageUrlContext = readShopifyContextFromUrl(context.url);
@@ -812,8 +915,8 @@ function apiOriginPattern(endpoint) {
   return `${url.protocol}//${url.hostname}/*`;
 }
 
-const DEFAULT_LARK_API_URL = "http://192.168.88.4:8787";
-const DEFAULT_LARK_API_KEY = "";
+const DEFAULT_LARK_API_URL = "http://192.168.10.2:8787";
+const DEFAULT_LARK_API_KEY = "4c0dc3b933b06f2368f1ae7fec22f2148832478aaaaf694e877ca38180fe3766";
 
 async function ensureApiPermission(endpoint) {
   const origins = [apiOriginPattern(endpoint)];
@@ -1056,7 +1159,7 @@ async function fillLookupIntoShopifyStable(result = state.larkLookup) {
     showToast("Chưa có dữ liệu Lark để điền.");
     return null;
   }
-  if (result.shipping?.ambiguous || result.gmc?.ambiguous) {
+  if (result.shipping?.ambiguous || result.gmc?.ambiguous || result.giftbox?.ambiguous) {
     throw new Error("Dữ liệu nguồn đang xung đột nên chưa điền vào Shopify.");
   }
 
@@ -1065,114 +1168,36 @@ async function fillLookupIntoShopifyStable(result = state.larkLookup) {
     throw new Error("Hãy mở đúng trang Product trong Shopify rồi thử lại.");
   }
 
-  const pickerValues = {
-    shippingPage: result.shipping?.shippingPage || "",
-    categoryBreadcrumb: result.gmc?.categoryBreadcrumb || ""
+  const values = {
+    categoryBreadcrumb: result.gmc?.categoryBreadcrumb || "",
+    gmcColor: result.gmc?.color || "",
+    gmcMaterial: result.gmc?.material || "",
+    giftbox: result.giftbox?.productHandle || "",
+    shippingEta: result.shipping?.codeRaw || "",
+    shippingPage: result.shipping?.shippingPage || ""
   };
-  const fillMessage = {
-    type: "FILL_SHOPIFY_LARK_DATA",
-    deferSave: true,
-    values: {
-      shippingPage: "",
-      shippingEta: result.shipping?.codeRaw || "",
-      gmcColor: result.gmc?.color || "",
-      gmcMaterial: result.gmc?.material || "",
-      categoryBreadcrumb: ""
-    }
-  };
-  const allValues = { ...fillMessage.values, ...pickerValues };
   const expected = SHOPIFY_LARK_FIELDS
-    .filter(({ key }) => String(allValues[key] || "").trim())
+    .filter(({ key }) => String(values[key] || "").trim())
     .map(({ label }) => label);
-  if (String(result.giftbox?.productHandle || "").trim()) expected.push("Giftbox");
+  if (String(values.giftbox).trim()) {
+    const etaIndex = expected.indexOf("Shipping ETA");
+    expected.splice(etaIndex < 0 ? expected.length : etaIndex, 0, "Giftbox");
+  }
 
   let activeTabId = initialContext.tabId;
-  let lastError = null;
-  let response = {
+  const response = {
     ok: false,
     filled: [],
-    missing: expected,
+    missing: [],
     fieldDiagnostics: {},
     pickerDiagnostics: {},
-    frameCount: 0,
-    editableCount: 0,
+    giftboxDiagnostics: "not-run",
     attempts: 0
   };
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    let frameResponse = null;
-    let pickerResponse = null;
-    let giftboxResponse = null;
-
-    try {
-      frameResponse = await sendShopifyFillToFrames(activeTabId, fillMessage);
-    } catch (error) {
-      lastError = error;
-      if (
-        !/message port closed|frame was removed|Receiving end does not exist/i.test(
-          error.message
-        )
-      ) {
-        throw error;
-      }
-    }
-
-    if (frameResponse?.openedMetafields && !frameResponse?.filled?.length) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-
-    try {
-      pickerResponse = await chrome.runtime.sendMessage({
-        type: "FILL_SHOPIFY_TRUSTED_PICKERS",
-        tabId: activeTabId,
-        values: pickerValues
-      });
-      if (pickerResponse?.error) {
-        lastError = new Error(pickerResponse.error);
-      }
-    } catch (error) {
-      lastError = error;
-    }
-
-    if (result.giftbox?.productHandle) {
-      try {
-        giftboxResponse = await chrome.runtime.sendMessage({
-          type: "FILL_SHOPIFY_GIFTBOX",
-          tabId: activeTabId,
-          productHandle: result.giftbox.productHandle
-        });
-        if (giftboxResponse?.error) lastError = new Error(giftboxResponse.error);
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    const passFilled = [
-      ...new Set([
-        ...(frameResponse?.filled || []),
-        ...(pickerResponse?.filled || []),
-        ...(giftboxResponse?.ok ? ["Giftbox"] : [])
-      ])
-    ];
-    response = {
-      ...response,
-      ...(frameResponse || {}),
-      ok: passFilled.length > 0,
-      filled: passFilled,
-      missing: expected.filter((label) => !passFilled.includes(label)),
-      pickerDiagnostics: pickerResponse?.diagnostics || {},
-      giftboxDiagnostics: giftboxResponse?.diagnostics || giftboxResponse?.stage || "not-run",
-      attempts: attempt
-    };
-
-    // Shopify frequently re-renders a section shortly after a value changes.
-    // Require a second full successful pass before saving.
-    if (!response.missing.length && attempt >= 2) break;
-    if (attempt >= 3) break;
-
-    await new Promise((resolve) =>
-      setTimeout(resolve, response.missing.length ? 1200 : 800)
-    );
+  const pauseForShopify = () =>
+    new Promise((resolve) => setTimeout(resolve, 650));
+  const ensureSameProduct = async () => {
     const refreshedContext = await queryActiveContext();
     if (
       refreshedContext?.app !== "shopify" ||
@@ -1181,13 +1206,117 @@ async function fillLookupIntoShopifyStable(result = state.larkLookup) {
       throw new Error("Trang Product đã thay đổi trong lúc đang điền dữ liệu.");
     }
     activeTabId = refreshedContext.tabId;
+  };
+  const runStage = async (label, task) => {
+    let stage = null;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      response.attempts += 1;
+      await ensureSameProduct();
+      stage = await task();
+      if (stage?.error) throw new Error(stage.error);
+      if (stage?.filled) {
+        if (!response.filled.includes(label)) response.filled.push(label);
+        return true;
+      }
+      if (attempt < 2) await pauseForShopify();
+    }
+    response.missing.push(label);
+    return false;
+  };
+  const runContentStage = (label, stageValues) =>
+    runStage(label, async () => {
+      const frameResponse = await sendShopifyFillToFrames(activeTabId, {
+        type: "FILL_SHOPIFY_LARK_DATA",
+        deferSave: true,
+        values: {
+          categoryBreadcrumb: "",
+          gmcColor: "",
+          gmcMaterial: "",
+          shippingEta: "",
+          shippingPage: "",
+          ...stageValues
+        }
+      });
+      Object.assign(response.fieldDiagnostics, frameResponse?.fieldDiagnostics || {});
+      return {
+        filled: (frameResponse?.filled || []).includes(label),
+        error: frameResponse?.ok === false && frameResponse?.error
+      };
+    });
+  const runPickerStage = (label, pickerValues) =>
+    runStage(label, async () => {
+      const pickerResponse = await chrome.runtime.sendMessage({
+        type: "FILL_SHOPIFY_TRUSTED_PICKERS",
+        tabId: activeTabId,
+        values: pickerValues
+      });
+      Object.assign(response.pickerDiagnostics, pickerResponse?.diagnostics || {});
+      return {
+        filled: (pickerResponse?.filled || []).includes(label),
+        error: pickerResponse?.error
+      };
+    });
+
+  // Do not overlap Shopify editors. This is the approved PS sequence and each
+  // stage is verified before the next stage can open a different editor.
+  if (String(values.categoryBreadcrumb).trim()) {
+    await runPickerStage("Category", {
+      categoryBreadcrumb: values.categoryBreadcrumb,
+      shippingPage: ""
+    });
+    await pauseForShopify();
   }
+  if (String(values.gmcColor).trim()) {
+    await runContentStage("GMC Color", { gmcColor: values.gmcColor });
+  }
+  if (String(values.gmcMaterial).trim()) {
+    await runContentStage("GMC Material", { gmcMaterial: values.gmcMaterial });
+  }
+  if (String(values.gmcColor).trim() || String(values.gmcMaterial).trim()) {
+    await pauseForShopify();
+  }
+  if (String(values.giftbox).trim()) {
+    await runStage("Giftbox", async () => {
+      const giftboxResponse = await chrome.runtime.sendMessage({
+        type: "FILL_SHOPIFY_GIFTBOX",
+        tabId: activeTabId,
+        productHandle: values.giftbox
+      });
+      response.giftboxDiagnostics =
+        giftboxResponse?.diagnostics || giftboxResponse?.stage || "not-found";
+      return { filled: Boolean(giftboxResponse?.ok), error: giftboxResponse?.error };
+    });
+    await pauseForShopify();
+  }
+  if (String(values.shippingEta).trim()) {
+    await runStage("Shipping ETA", async () => {
+      const etaResponse = await chrome.runtime.sendMessage({
+        type: "FILL_SHOPIFY_SHIPPING_ETA",
+        tabId: activeTabId,
+        shippingEta: values.shippingEta
+      });
+      response.shippingEtaDiagnostics =
+        etaResponse?.diagnostics || etaResponse?.stage || "not-found";
+      return {
+        filled: Boolean(etaResponse?.ok),
+        error: etaResponse?.error
+      };
+    });
+    await pauseForShopify();
+  }
+  if (String(values.shippingPage).trim()) {
+    await runPickerStage("Shipping Page", {
+      categoryBreadcrumb: "",
+      shippingPage: values.shippingPage
+    });
+  }
+
+  response.ok = response.filled.length > 0;
+  response.missing = expected.filter((label) => !response.filled.includes(label));
 
   if (!response.ok && !response.filled.length) {
     throw new Error(
-      lastError?.message ||
-        response.error ||
-        `Không tìm thấy metafield sau ${response.attempts} lượt kiểm tra.`
+      response.error || "Không tìm thấy field Shopify cần điền."
     );
   }
 
@@ -1201,8 +1330,8 @@ async function fillLookupIntoShopifyStable(result = state.larkLookup) {
 
   const feedback = $("#lark-feedback");
   feedback.textContent = response.missing.length
-    ? `Đã điền ${response.filled.join(", ")}. Chưa tìm thấy: ${response.missing.join(", ")} sau ${response.attempts} lượt. Hãy kiểm tra trước khi Save.`
-    : `Đã xác nhận đủ ${response.filled.join(", ")} qua ${response.attempts} lượt.`;
+    ? `Đã điền ${response.filled.join(", ")}. Chưa tìm thấy: ${response.missing.join(", ")}. Hãy kiểm tra trước khi Save.`
+    : `Đã xác nhận đủ ${response.filled.join(", ")}.`;
 
   if (response.missing.length) {
     const diagnosticText = Object.entries(response.fieldDiagnostics || {})
@@ -2293,6 +2422,32 @@ async function getActiveTeeinblueTab() {
   return tab;
 }
 
+async function keepOperationTabAlive(tabId) {
+  try {
+    await chrome.tabs.update(tabId, { autoDiscardable: false });
+  } catch {
+    // Some restricted tabs do not accept this flag; the operation can still proceed.
+  }
+}
+
+async function getTeeinblueOperationTab() {
+  if (state.tibTabId) {
+    try {
+      const tab = await chrome.tabs.get(state.tibTabId);
+      if (/(^|\.)teeinblue\.com$/i.test(new URL(tab.url || "").hostname)) {
+        await keepOperationTabAlive(tab.id);
+        return tab;
+      }
+    } catch {
+      state.tibTabId = null;
+    }
+  }
+  const tab = await getActiveTeeinblueTab();
+  state.tibTabId = tab.id;
+  await keepOperationTabAlive(tab.id);
+  return tab;
+}
+
 async function sendTeeinblueMessage(tabId, message, preferredFrameId = null) {
   const allFrames = await chrome.webNavigation.getAllFrames({ tabId });
   const tibFrames = allFrames.filter((frame) => {
@@ -2449,8 +2604,15 @@ function renderTibSmart2Sources(options = [], selectedPrimaryKey = "", selectedA
   state.tibSmart2Sources = options;
   const primary = $("#tib-smart2-primary-source");
   const currentPrimary = selectedPrimaryKey || primary.value;
+  // A source recommendation replaces a stale primary selection. Do not carry
+  // old additional checkboxes (for example Background/Hoodie) into the new
+  // plan unless the Scan response explicitly confirms them.
   const checked = new Set(
-    selectedAdditionalKeys || selectedTibSmart2AdditionalKeys()
+    selectedAdditionalKeys !== null
+      ? selectedAdditionalKeys
+      : selectedPrimaryKey
+        ? []
+        : selectedTibSmart2AdditionalKeys()
   );
   primary.innerHTML = [
     '<option value="">Tự nhận diện Option khớp nhiều layer nhất</option>',
@@ -2494,7 +2656,10 @@ async function loadTibSmart2Sources({ silent = false } = {}) {
     state.tibTabId = tab.id;
     state.tibFrameId = response.frameId;
     state.tibRuntimeFingerprint = response.runtimeFingerprint;
-    renderTibSmart2Sources(response.sourceOptions || []);
+    renderTibSmart2Sources(
+      response.sourceOptions || [],
+      response.recommendedPrimarySourceKey || ""
+    );
     if (!silent) setTibSmart2Feedback(`Đã đọc ${response.sourceOptions?.length || 0} Option.`, "success");
   } catch (error) {
     if (!silent) setTibSmart2Feedback(error.message, "error");
@@ -2631,7 +2796,7 @@ async function applyTibSmartSetup() {
     `Đang tạo Condition cho ${keys.length} layer. Giữ nguyên tab TeeInBlue cho tới khi hoàn tất…`
   );
   try {
-    const tab = await getActiveTeeinblueTab();
+    const tab = await getTeeinblueOperationTab();
     const response = await sendTeeinblueMessage(
       tab.id,
       { type: "APPLY_TIB_SMART_SETUP", keys },
@@ -2724,7 +2889,7 @@ async function scanTibSmartSetupV2() {
     );
     renderTibSmart2Preview(response);
     setTibSmart2Feedback(
-      `Đã quét ${response.layerCount || 0} layer. Safe ${response.safeCount || 0}, Conflict ${response.conflictCount || 0}, Skip ${response.skipCount || 0}.`,
+      `Đã quét ${response.layerCount || 0} layer · Nguồn: ${response.selectedPrimarySourceTitle || "tự nhận diện"}. Safe ${response.safeCount || 0}, Conflict ${response.conflictCount || 0}, Skip ${response.skipCount || 0}.`,
       response.conflictCount ? "warning" : "success"
     );
   } catch (error) {
@@ -2752,7 +2917,7 @@ async function applyTibSmartSetupV2() {
     "Đang giữ Condition cũ và bổ sung Final Condition. Không đóng tab TeeInBlue…"
   );
   try {
-    const tab = await getActiveTeeinblueTab();
+    const tab = await getTeeinblueOperationTab();
     const response = await sendTeeinblueMessage(
       tab.id,
       { type: "APPLY_TIB_SMART_SETUP_V2", keys },
@@ -2892,7 +3057,7 @@ async function applyTibLabels() {
   button.disabled = true;
   button.textContent = "Đang Apply…";
   try {
-    const tab = await getActiveTeeinblueTab();
+    const tab = await getTeeinblueOperationTab();
     const response = await sendTeeinblueMessage(
       tab.id,
       { type: "APPLY_TIB_LABELS", keys },
@@ -3067,6 +3232,16 @@ function normalizeCampaignFolderText(value) {
     .trim();
 }
 
+function hasRequiredReviewMockup(files = []) {
+  return files.some((file) => {
+    const name = String(file?.name || "").split(/[\\/]/).pop() || "";
+    // Business rule for both MVP5 and MVP7: the required file is the exact
+    // lowercase name `MK-review`; do not accept MK-Review, mk-review, or
+    // numbered variants as the required review mockup.
+    return /^MK-review\.(?:png|jpe?g|webp)$/.test(name);
+  });
+}
+
 function campaignMockupEntries(files = state.campaignMockupFiles) {
   return files
     .map((file) => {
@@ -3074,7 +3249,7 @@ function campaignMockupEntries(files = state.campaignMockupFiles) {
       const segments = path.split("/").filter(Boolean);
       const fileName = segments.at(-1) || file.name;
       const nameMatch = fileName.match(
-        /^mk-(?:(\d+)(?:-(default|df|detail|review))?|(default|df|detail|review))\.(png|jpe?g|webp)$/i
+        /^mk-(?:(\d+)(?:-(default|df|detail|review|dt))?|(default|df|detail|review|dt))\.(png|jpe?g|webp)$/i
       );
       if (!nameMatch) return null;
       const numbered = Boolean(nameMatch[1]);
@@ -3153,11 +3328,19 @@ function resolveCampaignMockups(title) {
       (left.number ?? 0) - (right.number ?? 0) ||
       left.file.name.localeCompare(right.file.name)
   );
+  const missingReview = !hasRequiredReviewMockup(sorted.map((entry) => entry.file));
+  if (missingReview) {
+    setCampaignFeedback(
+      `Thiếu mockup bắt buộc MK-Review trong folder Campaign "${title}". Campaign vẫn tiếp tục tạo; hãy bổ sung trước khi chốt.`,
+      "error"
+    );
+  }
   return {
     recordId: sorted[0].recordId,
     campaignFolder: sorted[0].campaignFolder,
     mockupPath: sorted[0].mockupPath,
-    files: sorted.map((entry) => entry.file)
+    files: sorted.map((entry) => entry.file),
+    missingReview
   };
 }
 
@@ -3200,11 +3383,15 @@ function acceptCampaignMockupFiles(files) {
   state.campaignMockupFiles = [...files];
   state.campaignMockupSelection = null;
   renderCampaignMockupSummary();
+  const validEntries = campaignMockupEntries();
+  const hasReview = hasRequiredReviewMockup(validEntries.map((entry) => entry.file));
   setCampaignFeedback(
     state.campaignMockupFiles.length
-      ? `Đã đọc ${state.campaignMockupFiles.length} file trong folder. Tool sẽ lấy MK-số, MK-số-DF/Default/Detail/Review và MK-Default/MK-DF đúng Record ID.`
+      ? hasReview
+        ? `Đã đọc ${state.campaignMockupFiles.length} file trong folder. Tool sẽ lấy MK-số, MK-số-DF/Default/Detail/Review và MK-Default/MK-DF đúng Record ID.`
+        : "Thiếu mockup bắt buộc MK-Review. Hãy bổ sung MK-Review rồi thử lại."
       : "",
-    state.campaignMockupFiles.length ? "success" : ""
+    state.campaignMockupFiles.length ? (hasReview ? "success" : "error") : ""
   );
   if (state.campaignMockupFiles.length) {
     state.campaignStartAfterFolderPick = false;
@@ -3332,6 +3519,7 @@ async function finishCampaignBuild(productBase = null) {
 
   const mockupSelection =
     state.campaignMockupSelection || resolveCampaignMockups(draft.title);
+  const missingReview = !hasRequiredReviewMockup(mockupSelection.files);
   const mockupSessionId = crypto.randomUUID();
   await storePendingUpload(
     mockupSessionId,
@@ -3358,10 +3546,12 @@ async function finishCampaignBuild(productBase = null) {
     throw new Error(response?.error || "Không tạo được Campaign.");
   }
   setCampaignFeedback(
-    response.saved
-      ? `Đã upload ${response.mockupCount || 0} mockup, tạo và lưu Campaign "${response.title}" với Product Base "${productBaseLabel}".`
-      : `Đã điền Campaign name và link Artwork vào "${productBaseLabel}".`,
-    "success"
+    missingReview
+      ? `Đã tạo Campaign "${response.title || draft.title}" nhưng THIẾU MK-Review bắt buộc. Hãy bổ sung trước khi chốt.`
+      : response.saved
+        ? `Đã upload ${response.mockupCount || 0} mockup, tạo và lưu Campaign "${response.title}" với Product Base "${productBaseLabel}".`
+        : `Đã điền Campaign name và link Artwork vào "${productBaseLabel}".`,
+    missingReview ? "error" : "success"
   );
   showToast(
     response.saved
@@ -3436,13 +3626,40 @@ function setTibCampaignFeedback(message = "", tone = "") {
   feedback.className = feedbackClassName(message, tone);
 }
 
+async function autoReadTibCampaignSource() {
+  setTibCampaignFeedback("Đang chờ TIB tải Category…", "warning");
+  try {
+    const draft = await readTibCampaignSource();
+    setTibCampaignFeedback(`Đã đọc Artwork #${draft.artworkId}.`, "success");
+  } catch (error) {
+    setTibCampaignFeedback(error.message, "error");
+  }
+}
+
+function tibCampaignPanelIsActive() {
+  return $("#tib-campaign-panel")?.classList.contains("active");
+}
+
 function tibCampaignMockups(files = state.tibCampaignMockupFiles) {
   return [...files]
     .filter((file) => {
+      if (!/\.(png|jpe?g|webp)$/i.test(String(file?.name || ""))) return false;
       const stem = file.name.replace(/\.[^.]+$/, "");
-      return /^mk-(?:\d+(?:-(?:default|df|detail|review))?|default|df|detail|review)$/i.test(stem) && !/(?:ads|pre)/i.test(stem);
+      return /^mk-(?:\d+(?:-(?:default|df|detail|review|dt))?|default|df|detail|review|dt)$/i.test(stem) && !/(?:ads|pre)/i.test(stem);
     })
     .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true }));
+}
+
+function validateTibCampaignReviewMockup() {
+  const files = tibCampaignMockups();
+  if (!files.length) {
+    setTibCampaignFeedback("Thiếu mockup bắt buộc MK-Review. Campaign vẫn tiếp tục tạo; hãy bổ sung trước khi chốt.", "error");
+    return files;
+  }
+  if (!hasRequiredReviewMockup(files)) {
+    setTibCampaignFeedback("Thiếu mockup bắt buộc MK-Review. Campaign vẫn tiếp tục tạo; hãy bổ sung trước khi chốt.", "error");
+  }
+  return files;
 }
 
 function renderTibCampaignMockups() {
@@ -3463,10 +3680,42 @@ function acceptTibCampaignMockups(files) {
   return valid.length;
 }
 
-async function readTibCampaignSource() {
+let tibCampaignReadPromise = null;
+
+async function readTibCampaignSourceOnce() {
   const tab = await getActiveTeeinblueTab();
-  const response = await sendTeeinblueMessage(tab.id, { type: "GET_TIB_CAMPAIGN_SOURCE" });
+  // Never leave a stale placeholder from a previous failed read visible while
+  // the current Artwork is being inspected.
+  const currentHint = $("#tib-campaign-product-hint");
+  // A TIB artwork can change in-place while MVP7 stays open. Clear the
+  // previous artwork's values immediately so they cannot be mistaken for the
+  // newly selected artwork while its Category is still hydrating.
+  currentHint.value = "";
+  $("#tib-campaign-title").value = "";
+  $("#tib-campaign-context-label").textContent = "Đang đọc TeeInBlue Artwork hiện tại…";
+  if (/^(loading(?:\.\.\.)?|please wait|undefined|null)$/i.test(String(currentHint?.value || "").trim())) {
+    currentHint.value = "";
+  }
+  let response = null;
+  const sourceMessage = { type: "GET_TIB_CAMPAIGN_SOURCE" };
+  // TIB may still be mounting/replacing the artwork editor on the first
+  // request. Keep this one read operation alive long enough for the content
+  // script to observe the Edit name & size control; the user should not need
+  // to press the Artwork refresh button twice.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await sendTeeinblueMessage(tab.id, sourceMessage);
+    const hint = String(response?.productHint || "").trim();
+    const transient = response?.ok && (!hint || /^(loading(?:\.\.\.)?|please wait|undefined|null)$/i.test(hint));
+    if (response?.ok && !transient) break;
+    if (!transient && !/chưa tải xong category|mở edit name/i.test(String(response?.error || ""))) {
+      throw new Error(response?.error || "Không đọc được TeeInBlue Artwork.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
   if (!response?.ok) throw new Error(response?.error || "Không đọc được TeeInBlue Artwork.");
+  if (!String(response.productHint || "").trim() || /^(loading(?:\.\.\.)?|please wait|undefined|null)$/i.test(String(response.productHint || "").trim())) {
+    throw new Error("TeeInBlue chưa tải xong Category sau khi chờ Artwork editor khởi tạo.");
+  }
   state.tibCampaignDraft = {
     title: response.title,
     artworkId: response.artworkId,
@@ -3474,12 +3723,21 @@ async function readTibCampaignSource() {
   };
   state.tibCampaignTabId = null;
   $("#tib-campaign-title").value = response.title;
-  // Product Base keyword is tied to this Artwork. Never reuse the previous
-  // Artwork's keyword after the source changes.
   $("#tib-campaign-product-hint").value = response.productHint || "";
   $("#tib-campaign-context-label").textContent = `Artwork #${response.artworkId} · ${response.title}`;
   await chrome.storage.local.set({ tibCampaignDraft: state.tibCampaignDraft });
   return state.tibCampaignDraft;
+}
+
+async function readTibCampaignSource() {
+  // Prevent two refresh clicks from creating overlapping reads. The second
+  // click previously hid the real timing issue because it started a new read
+  // after TIB had finished hydrating the Category field.
+  if (tibCampaignReadPromise) return tibCampaignReadPromise;
+  tibCampaignReadPromise = readTibCampaignSourceOnce().finally(() => {
+    tibCampaignReadPromise = null;
+  });
+  return tibCampaignReadPromise;
 }
 
 async function waitForTibCampaignEditor(tabId, timeout = 30000) {
@@ -3529,11 +3787,12 @@ async function finishTibCampaign(tabId, draft) {
   });
   if (!artwork?.ok) throw new Error(artwork?.error || "Không link được Artwork.");
 
-  const mockups = tibCampaignMockups();
+  const mockups = validateTibCampaignReviewMockup();
   if (!mockups.length) {
-    setTibCampaignFeedback("Đã tạo Campaign và link Artwork. Chưa có mockup để upload.", "success");
+    setTibCampaignFeedback("Campaign đã tạo và link Artwork, nhưng đang thiếu mockup bắt buộc MK-Review.", "error");
     return;
   }
+  const missingReview = !hasRequiredReviewMockup(mockups);
   const sessionId = crypto.randomUUID();
   await storePendingUpload(sessionId, mockups.map((file) => ({
     name: file.name,
@@ -3551,8 +3810,10 @@ async function finishTibCampaign(tabId, draft) {
     });
     if (!upload?.ok) throw new Error(upload?.error || "Không upload được mockup.");
     setTibCampaignFeedback(
-      `Đã tạo Campaign, chọn Product Base, link Artwork và chọn ${upload.count || mockups.length} mockup. Kiểm tra Preview trước khi Launch.`,
-      "success"
+      missingReview
+        ? `Đã tạo Campaign và chọn ${upload.count || mockups.length} mockup, nhưng THIẾU MK-Review bắt buộc.`
+        : `Đã tạo Campaign, chọn Product Base, link Artwork và chọn ${upload.count || mockups.length} mockup. Kiểm tra Preview trước khi Launch.`,
+      missingReview ? "error" : "success"
     );
   } finally {
     await removePendingUpload(sessionId).catch(() => {});
@@ -3568,6 +3829,7 @@ async function prepareTibCampaign() {
     setTibCampaignFeedback("Đang mở New Campaign và điền title…");
     const tab = await chrome.tabs.create({ url: "https://portal.teeinblue.com/campaigns/new" });
     state.tibCampaignTabId = tab.id;
+    await keepOperationTabAlive(tab.id);
     await waitForTabComplete(tab.id, 30000);
     const created = await sendTeeinblueMessage(tab.id, {
       type: "CREATE_TIB_CAMPAIGN_SHELL",
@@ -3587,8 +3849,97 @@ async function prepareTibCampaign() {
 async function init() {
   renderArtworkFonts();
   $("#app-version").textContent = `v${chrome.runtime.getManifest().version}`;
-  $$(".tab").forEach((button) => button.addEventListener("click", () => setActiveTab(button.dataset.tab)));
+  let savedTab = "";
+  try {
+    savedTab = sessionStorage.getItem("ps-active-mvp-tab") || "";
+  } catch {
+    // Fall back to extension storage when session storage is unavailable.
+  }
+  if (!savedTab) {
+    try {
+      const stored = await chrome.storage.local.get("psActiveMvpTab");
+      savedTab = String(stored.psActiveMvpTab || "");
+    } catch {
+      // Keep the HTML default tab when storage is unavailable.
+    }
+  }
+  // Restore once, without writing the possibly stale value back while the
+  // sidepanel is still starting. Explicit user clicks persist normally.
+  if (savedTab) setActiveTab(savedTab, { persist: false });
+  $$(".tab").forEach((button) => button.addEventListener("click", () => {
+    setActiveTab(button.dataset.tab);
+    if (button.dataset.tab === "tib-campaign") autoReadTibCampaignSource();
+    if (button.dataset.tab === "url-check") {
+      const feedback = $("#redirect-url-feedback");
+      feedback.textContent = "Đang quét các URL từ Shopify…";
+      feedback.className = "upload-feedback show loading";
+      readShopifyUrlLinks()
+        .then((links) => {
+          feedback.textContent = links.length
+            ? `Đã đọc ${links.length} URL từ Product hiện tại.`
+            : "Product hiện tại chưa có URL hợp lệ.";
+          feedback.className = "upload-feedback show success";
+        })
+        .catch((error) => {
+          feedback.textContent = error.message;
+          feedback.className = "upload-feedback show error";
+        });
+    }
+  }));
+  $("#refresh-redirect-url").addEventListener("click", async () => {
+    const feedback = $("#redirect-url-feedback");
+    feedback.textContent = "Đang quét các URL từ Shopify…";
+    feedback.className = "upload-feedback show loading";
+    try {
+      const links = await readShopifyUrlLinks();
+      feedback.textContent = links.length
+        ? `Đã đọc ${links.length} URL từ Product hiện tại.`
+        : "Product hiện tại chưa có URL hợp lệ.";
+      feedback.className = "upload-feedback show success";
+    } catch (error) {
+      feedback.textContent = error.message;
+      feedback.className = "upload-feedback show error";
+    }
+  });
+  $("#shopify-url-list").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-shopify-url]");
+    if (!button) return;
+    const feedback = $("#redirect-url-feedback");
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "OPEN_SHOPIFY_REDIRECT_URL",
+        url: button.dataset.shopifyUrl
+      });
+      if (!response?.ok) throw new Error(response?.error || "Không mở được URL.");
+      feedback.textContent = "Đã mở URL trong tab mới.";
+      feedback.className = "upload-feedback show success";
+    } catch (error) {
+      feedback.textContent = error.message;
+      feedback.className = "upload-feedback show error";
+    }
+  });
+  $("#open-redirect-url").addEventListener("click", async () => {
+    const feedback = $("#redirect-url-feedback");
+    try {
+      await openRedirectUrlFromPanel();
+      feedback.textContent = "Đã mở URL trong tab mới.";
+      feedback.className = "upload-feedback show success";
+    } catch (error) {
+      feedback.textContent = error.message;
+      feedback.className = "upload-feedback show error";
+    }
+  });
   $("#refresh-tib-context").addEventListener("click", refreshTibContext);
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (!tibCampaignPanelIsActive() || !changeInfo.url || !tab?.active) return;
+    let parsed;
+    try { parsed = new URL(changeInfo.url); } catch { return; }
+    // Only an Artwork navigation changes the source Category. Never clear the
+    // draft while the campaign flow is opening /campaigns/new or its editor.
+    if (/(^|\.)teeinblue\.com$/i.test(parsed.hostname) && /^\/artworks\/?$/i.test(parsed.pathname)) {
+      autoReadTibCampaignSource();
+    }
+  });
   $("#scan-tib-labels").addEventListener("click", scanTibLabels);
   $$(".tib-mode-tab").forEach((button) =>
     button.addEventListener("click", () => setTibMode(button.dataset.tibMode))
@@ -3783,6 +4134,7 @@ async function init() {
   });
   $("#prepare-tib-campaign").addEventListener("click", prepareTibCampaign);
   $("#refresh-tib-campaign-source").addEventListener("click", async () => {
+    setTibCampaignFeedback("Đang chờ TIB tải Category…", "warning");
     try {
       const draft = await readTibCampaignSource();
       setTibCampaignFeedback(`Đã đọc Artwork #${draft.artworkId}.`, "success");
@@ -3842,9 +4194,19 @@ async function init() {
   renderCampaignDraft(campaignDraft);
   const { tibCampaignDraft = null } = await chrome.storage.local.get("tibCampaignDraft");
   if (tibCampaignDraft) {
+    const savedProductHint = String(tibCampaignDraft.productHint || "").trim();
+    const validSavedProductHint = savedProductHint &&
+      !/^(loading(?:\.\.\.)?|please wait|undefined|null)$/i.test(savedProductHint)
+      ? savedProductHint
+      : "";
     state.tibCampaignDraft = tibCampaignDraft;
     $("#tib-campaign-title").value = tibCampaignDraft.title || "";
-    $("#tib-campaign-product-hint").value = tibCampaignDraft.productHint || "";
+    $("#tib-campaign-product-hint").value = validSavedProductHint;
+    if (!validSavedProductHint && savedProductHint) {
+      await chrome.storage.local.set({
+        tibCampaignDraft: { ...tibCampaignDraft, productHint: "" }
+      });
+    }
     $("#tib-campaign-context-label").textContent = tibCampaignDraft.title
       ? `Artwork #${tibCampaignDraft.artworkId || "?"} · ${tibCampaignDraft.title}`
       : "Chưa đọc TeeInBlue Artwork hiện tại";
@@ -3853,6 +4215,7 @@ async function init() {
   $("#lark-api-url").value = larkSettings.endpoint;
   $("#lark-api-key").value = larkSettings.apiKey;
   await queryActiveContext();
+  if (savedTab === "tib-campaign") autoReadTibCampaignSource();
 }
 
 init().catch((error) => {

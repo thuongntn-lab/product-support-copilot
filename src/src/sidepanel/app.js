@@ -799,7 +799,7 @@ function apiOriginPattern(endpoint) {
   return `${url.protocol}//${url.hostname}/*`;
 }
 
-const DEFAULT_LARK_API_URL = "http://192.168.88.4:8787";
+const DEFAULT_LARK_API_URL = "http://192.168.10.2:8787";
 const DEFAULT_LARK_API_KEY = "";
 
 async function ensureApiPermission(endpoint) {

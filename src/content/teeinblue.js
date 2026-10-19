@@ -1,7 +1,9 @@
 // This fingerprint is deliberately baked into the content-script bytecode.
 // Do not replace it with chrome.runtime.getManifest().version: an old content
 // script can read a new manifest after Chrome reloads the extension.
-var TIB_RUNTIME_FINGERPRINT = "ps-tib-0.18.2-20260914-a";
+// Keep this identifier aligned with the sidepanel compatibility guard. The
+// Product Base fix is DOM-scoped; it must not create a new runtime contract.
+var TIB_RUNTIME_FINGERPRINT = "ps-tib-0.18.5-20261013-d";
 var TIB_RUNTIME_STARTED_AT = Date.now();
 var tibLabelFields = new Map();
 var tibSmartSetupPlan = new Map();
@@ -15,6 +17,13 @@ function tibVisibleElement(element) {
   const rect = element?.getBoundingClientRect?.();
   const style = element ? getComputedStyle(element) : null;
   return Boolean(rect && rect.width > 3 && rect.height > 3 && style?.display !== "none" && style?.visibility !== "hidden");
+}
+
+function tibValidArtworkCategory(value) {
+  const normalized = tibText(value);
+  return normalized && !/^(category|new category|select category|loading(?:\.\.\.)?|please wait|undefined|null)$/i.test(normalized)
+    ? normalized
+    : "";
 }
 
 function tibButton(pattern, root = document) {
@@ -82,34 +91,66 @@ function tibSetNativeValue(input, value) {
 }
 
 function tibArtworkCategory(root = document) {
-  const label = [...root.querySelectorAll("label, .control-label, .form-label")]
-    .find((element) => tibVisibleElement(element) && /^category\s*\*?$/i.test(tibText(element.textContent)));
+  const label = [...root.querySelectorAll("label, .control-label, .form-label, div, span, p")]
+    .filter((element) => tibVisibleElement(element) && /^category\s*\*?$/i.test(tibText(element.textContent)))
+    .sort((left, right) => tibText(left.textContent).length - tibText(right.textContent).length)[0];
   if (!label) return "";
   const controlled = label.htmlFor ? document.getElementById(label.htmlFor) : null;
   const containers = [
-    label.closest(".form-group, .form-field, .ant-form-item, [class*='form-group'], [class*='form-item']"),
     label.parentElement,
+    label.closest(".form-group, .form-field, .ant-form-item, [class*='form-group'], [class*='form-item']"),
     label.parentElement?.parentElement
   ].filter(Boolean);
   for (const container of containers) {
-    const control = controlled || [...container.querySelectorAll("input, textarea")]
-      .find((input) => input.type !== "hidden" && tibText(input.value));
-    const controlValue = tibText(control?.value);
-    if (controlValue && !/^category$/i.test(controlValue)) return controlValue;
-    const selected = container.querySelector(
-      ".ant-select-selection-item, .multiselect__tag, .select2-selection__choice, " +
-      ".vs__selected, [class*='singleValue'], [class*='selection-item']"
-    );
+    const selected = [...container.querySelectorAll(
+      ".vue3-treeselect__single-value .artwork-category-value-label, " +
+      ".vue3-treeselect__single-value, .ant-select-selection-item, " +
+      ".multiselect__tag, .select2-selection__choice, .vs__selected, " +
+      "[class*='singleValue'], [class*='selection-item'], " +
+      "[class*='category'] [class*='tag'], [class*='category'] [class*='chip']"
+    )].find((element) => {
+      const value = tibText(element.getAttribute?.("title") || element.textContent)
+        .replace(/[×x]\s*$/, "")
+        .replace(/\bselect\s+category\b/ig, "")
+        .trim();
+      return value && !/^(category|new category)$/i.test(value);
+    });
     const selectedValue = tibText(selected?.getAttribute?.("title") || selected?.textContent)
       .replace(/[×x]\s*$/, "")
+      .replace(/\bselect\s+category\b/ig, "")
       .trim();
-    if (selectedValue && !/^category$/i.test(selectedValue)) return selectedValue;
+    const validSelectedValue = tibValidArtworkCategory(selectedValue);
+    if (validSelectedValue) return validSelectedValue;
+
+    const categoryControl = controlled || container.querySelector(
+      "input[name*='categor' i], textarea[name*='categor' i], " +
+      "input[id*='categor' i], textarea[id*='categor' i], " +
+      "[data-testid*='categor' i] input, [data-testid*='categor' i] textarea"
+    );
+    const categoryValue = tibText(categoryControl?.value || categoryControl?.textContent);
+    const validCategoryValue = tibValidArtworkCategory(categoryValue);
+    if (validCategoryValue) return validCategoryValue;
+
+    // Never take the first generic input from a broad ancestor: in the artwork
+    // details modal that input is usually Name, which duplicates the title.
+    const visibleInputs = [...container.querySelectorAll("input, textarea")]
+      .filter((input) => tibVisibleElement(input) && input.type !== "hidden" && tibText(input.value));
+    if (visibleInputs.length === 1) {
+      const value = tibText(visibleInputs[0].value);
+      const validInputValue = tibValidArtworkCategory(value);
+      if (validInputValue) return validInputValue;
+    }
+
     const compactText = tibText(container.textContent)
       .replace(/^category\s*\*?/i, "")
       .replace(/\+\s*new category.*$/i, "")
       .replace(/[×x]\s*$/, "")
       .trim();
-    if (compactText && compactText.length < 120) return compactText;
+    if (compactText && compactText.length < 120 && tibValidArtworkCategory(compactText)) {
+      const nestedLabels = [...container.querySelectorAll("label, .control-label, .form-label")]
+        .filter((element) => tibVisibleElement(element));
+      if (nestedLabels.length <= 1) return tibValidArtworkCategory(compactText);
+    }
   }
   return "";
 }
@@ -120,55 +161,112 @@ function tibArtworkDetailsDialog() {
     .find((element) => /Artwork details/i.test(tibText(element.textContent))) || null;
 }
 
+function tibFallbackProductHint(title) {
+  const rawTitle = tibText(title);
+  // Numeric/test artwork names are identifiers, not Product Base keywords.
+  // This also covers copies such as "2- LONA TEST copy" before the suffix is
+  // stripped below.
+  if (/^\d+\s*-\s*/.test(rawTitle)) return "";
+  const hint = (title.match(/personalized\s+(.+?)(?:\s+copy)*$/i)?.[1] || title.split(/\s+-\s+/).at(-1) || "")
+    .replace(/\s+copy(?:\s+copy)*$/i, "")
+    .trim();
+  // A technical/test title such as "1- LONA TEST" is not a product type.
+  // Do not echo the full artwork title into Product Base keyword when the
+  // structured Category field was unavailable.
+  if (!hint || hint === rawTitle) return "";
+  // TIB Artwork titles often contain a descriptive mug subtype while the
+  // actual Artwork Category is the shared taxonomy value "Mug".
+  if (/\b(?:coffee|ceramic|glass|metallic|plant\s+pot|squishy)?\s*mug\b/i.test(hint)) {
+    return "Mug";
+  }
+  return hint;
+}
+
+let tibArtworkDetailsOpenPromise = null;
+
+function tibArtworkDetailsTrigger() {
+  const candidates = [...document.querySelectorAll("a.p-1.ml-2.v-popper--has-tooltip")]
+    .filter(tibVisibleElement)
+    .filter((element) => element.querySelector(".la-pen, .las.la-pen, [class*='pen']"));
+  if (!candidates.length) return null;
+  // The header pencil is the only safe entry point. Do not fall back to a
+  // broad button/link scan: TIB has several edit controls on this page.
+  return candidates[0];
+}
+
 async function tibReadArtworkCategory() {
-  let details = tibArtworkDetailsDialog();
-  const wasOpen = Boolean(details);
-  if (!details) {
-    const direct = [...document.querySelectorAll(
-      '[title*="Edit artwork" i], [aria-label*="Edit artwork" i], ' +
-      '[data-original-title*="Edit artwork" i], .artwork-name-edit, .artwork-title-edit'
-    )].find(tibVisibleElement);
-    const topIcon = [...document.querySelectorAll(
-      'button, a, [role="button"], [class*="pencil"], [class*="edit"]'
-    )].find((element) => {
-      if (!tibVisibleElement(element)) return false;
-      const rect = element.getBoundingClientRect();
-      const label = tibText([
-        element.textContent,
-        element.getAttribute("title"),
-        element.getAttribute("aria-label"),
-        element.getAttribute("data-original-title"),
-        element.className
-      ].join(" "));
-      return rect.top < 180 && /(?:edit.*artwork|artwork.*edit|pencil)/i.test(label);
-    });
-    const opener = direct?.closest?.('button, a, [role="button"]') || direct ||
-      topIcon?.closest?.('button, a, [role="button"]') || topIcon;
-    if (opener) {
-      opener.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
-      details = await tibWaitFor(tibArtworkDetailsDialog, 6000);
+  const existing = tibArtworkDetailsDialog();
+  const readStableCategory = (details) => tibWaitFor(
+    () => tibValidArtworkCategory(tibArtworkCategory(details)),
+    7000,
+    200
+  );
+  if (existing) return await readStableCategory(existing) || "";
+  if (tibArtworkDetailsOpenPromise) return tibArtworkDetailsOpenPromise;
+
+  tibArtworkDetailsOpenPromise = (async () => {
+    // The artwork editor is a Vue SPA and the header pencil is often mounted
+    // after the sidepanel has already sent the first read request. Wait for
+    // that safe, specific trigger instead of returning an empty category and
+    // forcing the operator to click Refresh a second time.
+    const trigger = await tibWaitFor(
+      () => tibArtworkDetailsTrigger(),
+      10000,
+      200
+    );
+    if (!trigger) return "";
+    // Let the current TIB click/navigation transaction settle before asking
+    // Vue to open the details modal. This avoids the re-entrant click that
+    // previously made the editor disappear.
+    await tibWait(180);
+    const alreadyMounted = tibArtworkDetailsDialog();
+    if (alreadyMounted) return await readStableCategory(alreadyMounted) || "";
+    try {
+      trigger.click();
+    } catch {
+      return "";
     }
-  }
-  const category = tibArtworkCategory(details || document);
-  if (details && !wasOpen) {
-    const close = tibButton(/^cancel$/i, details) ||
-      details.querySelector('[aria-label="Close"], [data-dismiss="modal"], .close');
-    close?.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
-    await tibWaitFor(() => !tibArtworkDetailsDialog(), 3000);
-  }
-  return category;
+    const details = await tibWaitForDom(() => tibArtworkDetailsDialog(), 7000);
+    if (!details) return "";
+    return await readStableCategory(details) || "";
+  })().finally(() => {
+    tibArtworkDetailsOpenPromise = null;
+  });
+  return tibArtworkDetailsOpenPromise;
 }
 
 async function tibArtworkCampaignSource() {
   const dialog = [...document.querySelectorAll('[role="dialog"], .modal')]
     .filter(tibVisibleElement)
-    .find((element) => /Artwork\s*2\.0/i.test(element.textContent || ""));
+    .find((element) => /(?:Artwork\s*2\.0|Artwork details)/i.test(element.textContent || ""));
   const url = new URL(location.href);
   const idFromUrl = url.searchParams.get("id") || url.pathname.match(/\/artworks\/(\d+)/)?.[1] || "";
   const dialogText = tibText(dialog?.textContent);
   const id = idFromUrl || dialogText.match(/#(\d{4,})/)?.[1] || "";
+  const headerPattern = id
+    ? new RegExp(`\\(#${id}\\s+-\\s+[^)]{1,120}\\)`, "i")
+    : null;
+  const headerCandidates = headerPattern
+    ? [...document.querySelectorAll("*")]
+        .map((element) => tibText(element.textContent))
+        .filter((text) => text.length >= 8 && text.length <= 300 && headerPattern.test(text))
+        .sort((left, right) => left.length - right.length)
+    : [];
+  const headerLine = headerCandidates[0] || "";
+  const editorHeader = document.querySelector(".artwork-editor-header");
+  const editorHeaderId = tibText(editorHeader?.querySelector(".artwork-editor-design-format")?.textContent);
+  const editorHeaderTitle =
+    /^\(#\d+\s+-\s+/i.test(editorHeaderId) && editorHeaderId.includes(`#${id}`)
+      ? tibText(editorHeader.querySelector(".artwork-editor-name")?.textContent)
+      : "";
+  const headerTitle = editorHeaderTitle || (headerLine
+    ? headerLine.match(new RegExp(`^(.+?)\\s*\\(#${id}\\s+-`, "i"))?.[1]
+    : "");
   let title = dialogText.match(/^(.+?)\s*\(#\d+/)?.[1] ||
     tibText(dialog?.querySelector(".modal-title, h1, h2, h3")?.textContent);
+  if (!title || /^TeeInBlue Portal$/i.test(title) || /<iframe|google tag|loading/i.test(title)) {
+    title = headerTitle || title;
+  }
   if (/^(Artwork\s*2\.0|Edit)$/i.test(title)) title = "";
   if (!title && dialog) {
     title = [...dialog.querySelectorAll("div, span")]
@@ -189,10 +287,15 @@ async function tibArtworkCampaignSource() {
       )
     : "";
   if (!title || /TeeInBlue Portal/i.test(title)) title = selectedListTitle;
-  const category = tibArtworkCategory(dialog || document) || await tibReadArtworkCategory();
-  const productHint = category || (title.match(/personalized\s+(.+?)(?:\s+copy)*$/i)?.[1] || title.split(/\s+-\s+/).at(-1) || "")
-    .replace(/\s+copy(?:\s+copy)*$/i, "")
-    .trim();
+  const categoryFromDom = tibValidArtworkCategory(tibArtworkCategory(dialog || document));
+  const category = categoryFromDom || await tibReadArtworkCategory().catch(() => "");
+  const productHint = category || tibFallbackProductHint(title);
+  if (!category && /^\d+\s*-\s*/.test(tibText(title))) {
+    return {
+      ok: false,
+      error: "Hãy mở Edit name & size của Artwork để đọc Category trước khi tiếp tục."
+    };
+  }
   if (!title || !id) {
     return { ok: false, error: "Hãy mở popup Artwork hoặc trang Edit Artwork TeeInBlue rồi thử lại." };
   }
@@ -240,14 +343,16 @@ function tibProductEntryLabel(entry) {
   // a data attribute, or only by the card heading. Read all of those sources
   // so the extension never trusts the category chip as the search result.
   const heading = entry?.querySelector?.(
-    "h1, h2, h3, h4, h5, h6, .vgrid-entry-title, .product-name, [class*='product-name']"
+    ".vgrid-entry-title, .product-name, [class*='product-name'], h1, h2, h3, h4, h5, h6"
   );
+  // Do not use the wrapper's full text as the primary label. In TIB the
+  // virtualized grid wrapper can contain the search chip and several cards;
+  // that made every stale card appear to match e.g. "Pillow".
   return tibText([
     entry?.getAttribute?.("title"),
     entry?.getAttribute?.("data-title"),
     entry?.getAttribute?.("aria-label"),
-    heading?.textContent,
-    entry?.textContent
+    heading?.textContent
   ].filter(Boolean).join(" "));
 }
 
@@ -258,21 +363,46 @@ function tibProductEntryMatches(entry, keyword) {
 }
 
 function tibFilterRenderedProductEntries(dialog, keyword) {
-  const entries = [...dialog.querySelectorAll(".vgrid-entry-wrapper[title], .vgrid-entry-wrapper")];
+  // Only inspect actual card wrappers. The broad `.vgrid-entry-wrapper`
+  // selector also matches the virtualized list container, whose text includes
+  // the search chip and therefore falsely matches every product.
+  const entries = [...dialog.querySelectorAll(
+    ".vgrid-entry-wrapper[title], .vgrid-entry-wrapper[data-title], " +
+    ".vgrid-entry-wrapper [data-product-id]"
+  )].map((entry) => entry.matches(".vgrid-entry-wrapper") ? entry : entry.closest(".vgrid-entry-wrapper"))
+    .filter(Boolean)
+    .filter((entry, index, all) => all.indexOf(entry) === index);
   if (!entries.length) return [];
   const matches = entries.filter((entry) => tibProductEntryMatches(entry, keyword));
-  // Do not blank the modal while TeeInBlue is still replacing a virtualized
-  // page. Once at least one real match is rendered, hide only the unrelated
-  // cards so the user sees the same result set that the extension will use.
-  if (matches.length) {
-    for (const entry of entries) {
-      const show = matches.includes(entry);
-      entry.hidden = !show;
-      entry.style.display = show ? "" : "none";
-      entry.setAttribute("aria-hidden", show ? "false" : "true");
-    }
-  }
+  // Never mutate the virtualized list. Vue can recycle these nodes while the
+  // async request is in flight; hiding them leaves stale cards visible and
+  // breaks the next search. The same verified matches are used for selection.
   return matches.filter(tibVisibleElement);
+}
+
+async function tibTypeProductSearch(input, value) {
+  input.focus();
+  tibSetNativeValue(input, "");
+  await tibWait(120);
+  const text = tibText(value);
+  for (const character of text) {
+    input.dispatchEvent(new KeyboardEvent("keydown", {
+      key: character, bubbles: true, composed: true
+    }));
+    const prototype = input instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(input, `${input.value}${character}`);
+    input.dispatchEvent(new InputEvent("input", {
+      bubbles: true, composed: true, data: character, inputType: "insertText"
+    }));
+    input.dispatchEvent(new KeyboardEvent("keyup", {
+      key: character, bubbles: true, composed: true
+    }));
+    await tibWait(35);
+  }
+  input.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  input.dispatchEvent(new Event("search", { bubbles: true, composed: true }));
 }
 
 async function tibPrepareCampaignProduct(keyword) {
@@ -296,25 +426,19 @@ async function tibPrepareCampaignProduct(keyword) {
   if (!dialog) throw new Error("Không mở được bảng Product Base.");
   const search = dialog.querySelector('input.vgrid-input[placeholder="Search"], input[placeholder="Search"]');
   if (!search) throw new Error("Không tìm thấy ô tìm Product Base.");
-  tibSetNativeValue(search, "");
-  search.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
-  search.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
-  await tibWait(80);
-  tibSetNativeValue(search, keyword);
-  // Ant-based inputs update their list from both input and keyboard events;
-  // dispatch the same lightweight events as a real user keystroke.
-  search.dispatchEvent(new KeyboardEvent("keyup", {
-    key: tibText(keyword).slice(-1) || "a",
-    bubbles: true,
-    composed: true
-  }));
-  search.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
-  search.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
-  search.dispatchEvent(new Event("search", { bubbles: true, composed: true }));
+  await tibTypeProductSearch(search, keyword);
   const normalizedKeyword = tibText(keyword).toLowerCase();
   let stableSignature = "";
   let stablePolls = 0;
   const entries = await tibWaitFor(() => {
+    // Do not evaluate cards until TIB has accepted the complete query. A
+    // delayed Vue update can otherwise leave the previous (e.g. Mug) result
+    // set in the DOM while the input visually shows the new keyword.
+    if (tibText(search.value).toLowerCase() !== normalizedKeyword) {
+      stableSignature = "";
+      stablePolls = 0;
+      return null;
+    }
     const found = tibFilterRenderedProductEntries(dialog, normalizedKeyword);
     const signature = found
       .map((entry) => tibText(entry.getAttribute("title") || entry.textContent))
@@ -345,7 +469,7 @@ async function tibPrepareCampaignProduct(keyword) {
     }
     throw new Error(`Không tìm thấy Product Base chứa "${keyword}".`);
   }
-  const matches = entries.map((entry) => ({ title: entry.getAttribute("title") || tibText(entry.textContent) }));
+  const matches = entries.map((entry) => ({ title: tibProductEntryLabel(entry) }));
   if (entries.length === 1) {
     entries[0].click();
     await tibWaitFor(() => !tibProductDialog() && tibButton(/Select artwork/i), 10000);
@@ -647,8 +771,21 @@ async function tibLayerDescriptors() {
       parentLayer = parentLayer.parentElement?.closest(".artwork-sortable-layer");
     }
     const path = [...ancestors].reverse();
+    const fieldId = id.replace(/^artwork-sortable-layer-(?:layer-)?/, "");
+    const previewField = fieldId
+      ? document.querySelector(`.tee-field--layer-${CSS.escape(fieldId)}`)
+      : null;
+    const optionTitle = tibNormalize(
+      previewField?.querySelector(".tee-field__heading")?.textContent
+    ).replace(/\*+$/, "").trim();
+    const fieldKind = [...(previewField?.classList || [])]
+      .find((name) => name.startsWith("tee-field--"))
+      ?.replace("tee-field--", "") || "";
     return {
       label,
+      optionTitle,
+      fieldKind,
+      isTextOption: fieldKind === "text" || /^type\s+name$/i.test(optionTitle),
       occurrence,
       index,
       id,
@@ -758,7 +895,7 @@ function tibSmartSourceOptions() {
         ...new Set(
           [
             ...field.querySelectorAll(
-              ".tee-clipart-label[data-title], .tee-clipart-label img[alt]"
+              ".tee-clipart-label[data-title], .tee-clipart-label img[alt], [data-title], img[alt]"
             )
           ]
             .map(
@@ -769,17 +906,51 @@ function tibSmartSourceOptions() {
             .filter(Boolean)
         )
       ];
-      if (!values.length) {
-        values.push(
-          ...[
-            ...field.querySelectorAll(
-              'select option:not([disabled]), input[type="radio"] + label, input[type="checkbox"] + label'
-            )
-          ]
-            .map((element) => tibNormalize(element.textContent))
-            .filter(Boolean)
-        );
-      }
+      values.push(
+        ...[
+          ...field.querySelectorAll(
+            'select option:not([disabled]), .multiselect__option:not([aria-disabled="true"]), [role="option"]:not([aria-disabled="true"]), .vue-treeselect__option:not([aria-disabled="true"]), input[type="radio"] + label, input[type="checkbox"] + label'
+          )
+        ]
+          .map((element) => tibNormalize(element.textContent))
+          .filter(
+            (value) => value && !/^(?:choose an option|search)$/i.test(value)
+          )
+      );
+      // TIB renders some category options (for example Background/Hoodie
+      // colors) as custom radio rows instead of clipart labels. Those rows
+      // have no `data-title`, so the old reader silently dropped the whole
+      // option even though it is visible in Preview Options.
+      values.push(
+        ...[
+          ...field.querySelectorAll(
+            'input[type="radio"], input[type="checkbox"], [role="radio"], [role="checkbox"]'
+          )
+        ]
+          .map((control) => {
+            const controlId = control.getAttribute("id");
+            const linkedLabel = controlId
+              ? field.querySelector(`label[for="${CSS.escape(controlId)}"]`)
+              : null;
+            return (
+              linkedLabel?.textContent ||
+              control.getAttribute("aria-label") ||
+              control.getAttribute("data-title") ||
+              control.closest("label, .form-check, [role=radio], [role=checkbox]")
+                ?.textContent ||
+              control.parentElement?.textContent ||
+              control.getAttribute("value")
+            );
+          })
+          .map(tibNormalize)
+          .filter(
+            (value) =>
+              value &&
+              !/^[-+]?\d+(?:\.\d+)?$/.test(value) &&
+              !/^(?:https?:\/\/|users\/)/i.test(value)
+          )
+          .filter(Boolean)
+      );
       return {
         key: ownerId ? `${ownerId}:${title}` : `field-${index}:${title}`,
         title,
@@ -840,7 +1011,11 @@ async function tibAdditionalOptionSources(layers) {
   return sources;
 }
 
-async function tibWaitForSmartSourcesV2(timeout = 7000, stableCycles = 3) {
+async function tibWaitForSmartSourcesV2(timeout = 7000, stableCycles = 8) {
+  // Preview Options is hydrated field-by-field. The State select often
+  // arrives before the radio-based Background/Hoodie fields; a short
+  // three-cycle wait returned a partial source list and made the tool report
+  // only one Option. Keep the first complete list stable for ~1s instead.
   const deadline = Date.now() + timeout;
   let lastSignature = "";
   let stable = 0;
@@ -862,6 +1037,24 @@ async function tibWaitForSmartSourcesV2(timeout = 7000, stableCycles = 3) {
 async function tibReloadPreviewSourcesV2() {
   let sources = await tibWaitForSmartSourcesV2(3000);
   if (sources.length) return sources;
+  // TIB keeps Preview Options behind a vertical tab while a layer editor is
+  // open. Smart Setup must open that surface itself; otherwise the content
+  // script sees zero `.tee-field` nodes and reports a misleading load error.
+  const previewTab = [...document.querySelectorAll("a, button, [role=button]")].find(
+    (element) => {
+      if (!tibVisible(element)) return false;
+      const label = tibNormalize(
+        element.textContent || element.getAttribute("aria-label") || element.getAttribute("title")
+      );
+      return /preview\s+options/i.test(label);
+    }
+  );
+  if (previewTab) {
+    previewTab.click();
+    await tibWait(320);
+    sources = await tibWaitForSmartSourcesV2(5000);
+    if (sources.length) return sources;
+  }
   const reloadButton = [...document.querySelectorAll('button, a, [role="button"]')].find(
     (element) =>
       tibVisible(element) && /reload\s+preview/i.test(tibNormalize(element.textContent))
@@ -901,11 +1094,14 @@ function tibSmartSourceMatchCountV2(source, layers, rule = "contains") {
 }
 
 async function tibGetSmartSetupV2Sources({ rule = "contains" } = {}) {
-  const layers = await tibLayerDescriptors();
+  let layers = await tibLayerDescriptors();
   if (!layers.length) {
     return { ok: false, error: "Hãy mở đúng Artwork editor của TeeInBlue rồi thử lại." };
   }
   const previewSources = await tibReloadPreviewSourcesV2();
+  // Preview Options may have been hidden while the layer tree was first
+  // inspected, so refresh descriptors now that their Type Name fields exist.
+  layers = await tibLayerDescriptors();
   const additionalSources = previewSources.length
     ? []
     : await tibAdditionalOptionSourcesV2(layers);
@@ -916,18 +1112,29 @@ async function tibGetSmartSetupV2Sources({ rule = "contains" } = {}) {
       error: "Không đọc được Option và Value trong Preview Options."
     };
   }
+  const textOptionLayers = layers.filter((layer) => layer.isTextOption);
+  const matchLayers = textOptionLayers.length ? textOptionLayers : layers;
   const sourceOptions = sources
     .map((source) => ({
       key: source.key,
       title: source.title,
       valueCount: source.values.length,
-      matchCount: tibSmartSourceMatchCountV2(source, layers, rule)
+      matchCount: tibSmartSourceMatchCountV2(source, matchLayers, rule)
     }))
     .sort(
       (left, right) =>
         right.matchCount - left.matchCount || right.valueCount - left.valueCount
     );
-  return { ok: true, sourceOptions, layerCount: layers.length };
+  const recommendedPrimarySourceKey =
+    textOptionLayers.length >= 1
+      ? sourceOptions.find((option) => option.matchCount > 0)?.key || ""
+      : "";
+  return {
+    ok: true,
+    sourceOptions,
+    recommendedPrimarySourceKey,
+    layerCount: layers.length
+  };
 }
 
 function tibMergeSmartSources(...sourceGroups) {
@@ -966,8 +1173,15 @@ function tibSmartMatchesV2(optionValue, layerName, rule) {
   const layer = tibSmartComparable(layerName);
   if (!option || !layer) return false;
   if (rule === "exact") return option === layer;
-  const escaped = option.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(layer);
+  // TIB state values are often composite labels such as "Alabama black",
+  // while the artwork layer is the reusable token "black". Match in both
+  // directions, but keep token boundaries so "red" does not match
+  // "redirect" or another unrelated label.
+  const tokenMatch = (haystack, needle) => {
+    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(haystack);
+  };
+  return tokenMatch(layer, option) || tokenMatch(option, layer);
 }
 
 function tibSmartMatchesGroupV2(optionValue, groupLabel, rule) {
@@ -1200,8 +1414,20 @@ async function tibSelectConditionSource(block, source) {
     const trigger = multiselect?.querySelector(".multiselect__input");
     if (!trigger) return false;
     trigger.focus();
-    trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    trigger.click();
+    // TIB's Vue multiselect listens on the root widget, not the zero-width
+    // search input. Open the root first, then notify the input for filtering.
+    multiselect.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, composed: true })
+    );
+    multiselect.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, composed: true })
+    );
+    trigger.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, composed: true })
+    );
+    trigger.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, composed: true })
+    );
     const match = await tibWaitFor(
       () => tibVisibleConditionOptions(multiselect).find((option) =>
         tibConditionOptionMatches(option, source)
@@ -1281,8 +1507,10 @@ async function tibSetConditionValue(block, optionValue) {
     const trigger = valueMultiselect.querySelector(".multiselect__input");
     if (!trigger) return false;
     trigger.focus();
-    trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    trigger.click();
+    valueMultiselect.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
+    valueMultiselect.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+    trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
     const wantedOption = await tibWaitFor(
       () =>
         [...valueMultiselect.querySelectorAll(".multiselect__option")].find(
@@ -1467,19 +1695,40 @@ async function tibSetConditionValuesV2(block, optionValues = []) {
     // condition block is created. Clear that default before applying the
     // requested Value set, otherwise 006 becomes 001 + 006 and verification
     // correctly rejects the condition as mismatched.
-    for (const input of choices) {
-      if (!input.checked) continue;
-      input.click();
-      await tibWait(45);
+    // The checkbox list is Vue-rendered and is replaced after each click.
+    // Never keep using the original Node references: reacquire the live
+    // checked input before every click or only the first Value is changed.
+    for (let guard = 0; guard < choices.length + 5; guard += 1) {
+      const liveChecked = [...block.querySelectorAll('input[type="checkbox"]')]
+        .find((input) => input.checked);
+      if (!liveChecked) break;
+      const checkedId = liveChecked.id;
+      liveChecked.click();
+      await tibWaitFor(
+        () => {
+          const current = [...block.querySelectorAll('input[type="checkbox"]')]
+            .find((input) => input.id === checkedId);
+          return !current || !current.checked;
+        },
+        900,
+        35
+      );
     }
     for (const wantedValue of wantedValues) {
-      const wanted = choices.find((input) =>
+      const liveChoices = [...block.querySelectorAll('input[type="checkbox"]')];
+      const wanted = liveChoices.find((input) =>
         tibConditionChoiceMatches(tibConditionChoiceValue(block, input), wantedValue)
       );
       if (!wanted) return false;
       if (!wanted.checked) {
         wanted.click();
-        await tibWait(55);
+        const selected = await tibWaitFor(
+          () => tibConditionSelectedValues(block)
+            .some((value) => tibConditionChoiceMatches(value, wantedValue)),
+          1400,
+          35
+        );
+        if (!selected) return false;
       }
     }
     return Boolean(await tibWaitFor(() => {
@@ -1500,8 +1749,10 @@ async function tibSetConditionValuesV2(block, optionValues = []) {
     const trigger = valueMultiselect.querySelector(".multiselect__input");
     if (!trigger) return false;
     trigger.focus();
-    trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    trigger.click();
+    valueMultiselect.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
+    valueMultiselect.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+    trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, composed: true }));
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
     const option = await tibWaitFor(
       () =>
         [...new Set([
@@ -1562,7 +1813,7 @@ async function tibScanSmartSetupV2({
   joinMode = "and"
 } = {}) {
   tibSmartSetupV2Plan.clear();
-  const layers = await tibLayerDescriptors();
+  let layers = await tibLayerDescriptors();
   if (!layers.length) {
     return {
       ok: false,
@@ -1570,6 +1821,7 @@ async function tibScanSmartSetupV2({
     };
   }
   const previewSources = await tibReloadPreviewSourcesV2();
+  layers = await tibLayerDescriptors();
   const additionalSources = previewSources.length
     ? []
     : await tibAdditionalOptionSourcesV2(layers);
@@ -1582,10 +1834,17 @@ async function tibScanSmartSetupV2({
     };
   }
 
+  // Conditional rules belong to option-backed text layers. Use the field
+  // kind/label supplied by TIB instead of hardcoding a campaign's colour
+  // names, so the same rule works for any reusable token (size, material,
+  // language, etc.).
+  const textOptionLayers = layers.filter((layer) => layer.isTextOption);
+  const targetLayers = textOptionLayers.length ? textOptionLayers : layers;
+
   const sourceOptions = sources
     .map((source) => ({
       source,
-      directMatchCount: layers.filter((layer) =>
+      directMatchCount: targetLayers.filter((layer) =>
         source.values.some((value) =>
           tibSmartMatchesV2(value, layer.label, rule)
         )
@@ -1596,9 +1855,28 @@ async function tibScanSmartSetupV2({
         right.directMatchCount - left.directMatchCount ||
         right.source.values.length - left.source.values.length
     );
+  const requestedSource = sources.find(
+    (source) => source.key === primarySourceKey
+  );
+  const bestMatchingSource = sourceOptions.find(
+    ({ directMatchCount }) => directMatchCount > 0
+  )?.source;
+  if (textOptionLayers.length && !bestMatchingSource) {
+    return {
+      ok: false,
+      error: `Không có Option/Value nào match layer text: ${textOptionLayers
+        .map((layer) => layer.label)
+        .join(", ")}. Hãy kiểm tra Option đang mở trong Preview Options.`
+    };
+  }
+  // Do not let a stale source selection produce zero matches when TIB has a
+  // clear structured source that matches the text layers. Manual selection
+  // remains available when it also matches, or when no automatic match exists.
+  const automaticSource = bestMatchingSource || requestedSource;
   const primarySource =
-    sources.find((source) => source.key === primarySourceKey) ||
-    sourceOptions[0]?.source;
+    textOptionLayers.length && automaticSource
+      ? automaticSource
+      : requestedSource || bestMatchingSource || sourceOptions[0]?.source;
   if (!primarySource) {
     return { ok: false, error: "Hãy chọn Option điều kiện chính." };
   }
@@ -1610,7 +1888,7 @@ async function tibScanSmartSetupV2({
     additionalKeySet.has(source.key)
   );
 
-  const rawRows = layers
+  const rawRows = targetLayers
     .map((layer) => {
       const primaryValues = primarySource.values.filter((value) =>
         tibSmartMatchesV2(value, layer.label, rule)
@@ -1659,6 +1937,10 @@ async function tibScanSmartSetupV2({
       scanError = `Không mở được layer "${row.layer.displayLabel || row.layer.label}".`;
     } else {
       await tibWaitForEditorQuiet();
+      // Make the target Type Name option visible before inspecting its
+      // conditional setting; this also prevents a stale state-layer panel
+      // from being mistaken for the colour option currently being scanned.
+      await tibOpenPersonalizationSettings();
       const panel = await tibOpenConditionalSettings();
       if (panel) snapshot = tibConditionSnapshot(panel);
       else scanError = "Không đọc được Conditional Setting.";
@@ -1742,7 +2024,8 @@ async function tibScanSmartSetupV2({
   return {
     ok: true,
     rows,
-    layerCount: layers.length,
+    layerCount: targetLayers.length,
+    totalLayerCount: layers.length,
     sourceCount: sources.length,
     safeCount: rows.filter((row) => ["new", "replace"].includes(row.action)).length,
     conflictCount: rows.filter((row) => row.action === "conflict").length,
@@ -1780,6 +2063,7 @@ async function tibApplySmartSetupV2(keys = []) {
         throw new Error(`Không mở được layer "${entry.layer.label}".`);
       }
       await tibWaitForEditorQuiet();
+      await tibOpenPersonalizationSettings();
       const panel = await tibOpenConditionalSettings();
       if (!panel) throw new Error("Không mở được Conditional Setting.");
       const liveSnapshot = tibConditionSnapshot(panel);

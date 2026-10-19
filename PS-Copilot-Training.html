@@ -1,3 +1,4 @@
+<!-- v0.18.45: MVP8 reads only stored metafield URLs and filters Shopify admin links. -->
 <!doctype html>
 <html lang="vi">
 <head>
@@ -345,6 +346,7 @@
         <a href="#mvp5"><span class="nav-num">05</span><span>Campaign</span></a>
         <a href="#mvp6"><span class="nav-num">06</span><span>TIB Labels</span></a>
         <a href="#mvp7"><span class="nav-num">07</span><span>TIB Campaign</span></a>
+        <a href="#mvp8"><span class="nav-num">08</span><span>URL Check</span></a>
       </nav>
     </aside>
 
@@ -363,7 +365,7 @@
 
       <section class="quick-start" aria-label="Bắt đầu nhanh">
         <article class="quick-card"><b>1. Mở đúng trang</b><p>Mở Customall, Shopify hoặc Teeinblue đúng màn hình cần thao tác.</p></article>
-        <article class="quick-card"><b>2. Mở PS Copilot</b><p>Chọn tab MVP tương ứng và kiểm tra Current Context.</p></article>
+        <article class="quick-card"><b>2. Mở PS Copilot</b><p>Chọn tab MVP tương ứng và kiểm tra Current Context. Tác vụ chạy nền trên tab nguồn, nên team có thể mở tab khác mà không làm dừng tác vụ.</p></article>
         <article class="quick-card"><b>3. Kiểm tra trước Save</b><p>Tool tự động thao tác; PS vẫn cần kiểm tra kết quả trước khi hoàn tất.</p></article>
       </section>
 
@@ -476,7 +478,7 @@
             <li>Ô trống trên Lark sẽ được giữ trống.</li>
             <li>Metafield GMC Material/GMC Color được mở theo tên activator Shopify và liên kết label-input động, nên không phụ thuộc vị trí cột giữa PAW và WR.</li>
           </ul></div></details>
-          <details><summary>Quy trình sử dụng</summary><div class="detail-content"><ol class="steps"><li>Mở trang chỉnh sửa sản phẩm Shopify.</li><li>Kiểm tra Product Type tool nhận diện.</li><li>Bấm <b>Đọc Lark & điền Shopify</b>; trạng thái đang xử lý, thành công hoặc lỗi sẽ hiển thị ngay dưới nút.</li><li>Extension dò thêm Giftbox Product Handle theo Product Type bằng Chrome DevTools và điền vào metafield Giftbox nếu field đang hiển thị.</li><li>Lookup API tự kiểm tra và làm mới phiên Lark trước khi đọc Sheet; chỉ khi hiện cảnh báo <b>API offline</b> mới cần khởi động lại API port 8787.</li><li>Kiểm tra các trường rồi Save sản phẩm.</li></ol><div class="note success">Giftbox lấy từ Sheet Product Type → Product Handle tại thời điểm chạy; các mapping MVP4 hiện có không bị thay đổi.</div></div></details>
+          <details><summary>Quy trình sử dụng</summary><div class="detail-content"><ol class="steps"><li>Mở trang chỉnh sửa sản phẩm Shopify.</li><li>Kiểm tra Product Type tool nhận diện.</li><li>Bấm <b>Đọc Lark & điền Shopify</b>; trạng thái đang xử lý, thành công hoặc lỗi sẽ hiển thị ngay dưới nút.</li><li>Extension luôn chạy theo thứ tự: Category → GMC Color/Material → Giftbox → Shipping ETA → Shipping Page. Mỗi bước hoàn tất rồi mới mở field kế tiếp.</li><li>Extension tự xử lý Shipping ETA ở cả modal PAW và editor metafield inline của WR; không cần mở field hoặc bấm Done thủ công.</li><li>Extension dò thêm Giftbox Product Handle theo Product Type bằng Chrome DevTools và điền vào metafield Giftbox nếu field đang hiển thị.</li><li>Trên metafield <b>Redirect URL</b>, nút <b>Mở URL ↗</b> chỉ xuất hiện khi URL http/https hợp lệ; nút mở tab mới nhưng không sửa giá trị hoặc bật chế độ edit.</li><li>Lookup API tự kiểm tra và làm mới phiên Lark trước khi đọc Sheet; chỉ khi hiện cảnh báo <b>API offline</b> mới cần khởi động lại API port 8787.</li><li>Kiểm tra các trường rồi Save sản phẩm.</li></ol><div class="note success">Giftbox lấy từ Sheet Product Type → Product Handle tại thời điểm chạy; các mapping MVP4 hiện có không bị thay đổi.</div></div></details>
         </div>
       </article>
 
@@ -497,7 +499,7 @@
           </ol></div></details>
           <details><summary>Quy tắc nhận mockup</summary><div class="detail-content"><ul>
             <li>Folder được chấp nhận: <code>MK</code>, <code>Mock up</code>, <code>Mockup</code>.</li>
-            <li>File được lấy: <code>MK-1</code>, <code>MK-1-DF</code>, <code>MK-2</code>…, <code>MK-Default</code>/<code>MK-DF</code>, <code>MK-Detail</code>, <code>MK-Review</code> (không phân biệt hoa/thường).</li>
+            <li>File được lấy: <code>MK-1</code>, <code>MK-1-DF</code>, <code>MK-2</code>…, <code>MK-Default</code>/<code>MK-DF</code>, <code>MK-Detail</code>/<code>MK-DT</code>, <code>MK-Review</code> (không phân biệt hoa/thường).</li>
             <li>Không lấy ảnh chứa ADS, Pre hoặc tên nằm ngoài quy tắc.</li>
             <li>Có thể dò đúng folder campaign theo Record ID.</li>
           </ul></div></details>
@@ -562,11 +564,25 @@
             <li>Khi tìm Product Base, MVP7 lọc theo đúng tên Product Base chứa keyword của Artwork; các card không khớp sẽ không hiển thị trong bảng chọn.</li>
           </ol></div></details>
           <details><summary>Quy tắc mockup</summary><div class="detail-content"><ul>
-            <li>Nhận <code>MK-1</code>, <code>MK-1-DF</code>, <code>MK-2</code>…, <code>MK-Default</code>/<code>MK-DF</code>, <code>MK-Detail</code> và <code>MK-Review</code> (không phân biệt hoa/thường).</li>
+            <li>Nhận <code>MK-1</code>, <code>MK-1-DF</code>, <code>MK-2</code>…, <code>MK-Default</code>/<code>MK-DF</code>, <code>MK-Detail</code>/<code>MK-DT</code> và <code>MK-Review</code> (không phân biệt hoa/thường).</li>
             <li>Bỏ các file ADS, Pre và file không đúng quy tắc.</li>
             <li>MVP7 không điền SKU suffix và Tags.</li>
           </ul></div></details>
           <details><summary>Lưu ý</summary><div class="detail-content"><div class="note">Sau khi tool hoàn tất, kiểm tra Product Base, Artwork và Preview trước khi Launch Campaign.</div></div></details>
+        </div>
+      </article>
+
+      <article class="mvp-card" id="mvp8" data-search="mvp8 url check redirect url shopify metafield mở tab">
+        <header class="mvp-head">
+          <div class="mvp-index">08</div>
+          <div class="mvp-title"><h3>URL Check</h3><p>Đọc và mở nhiều URL sau khi upload</p></div>
+        </header>
+        <div class="mvp-body">
+          <details open><summary>Workflow</summary><div class="detail-content"><ol class="steps">
+            <li>Mở trang Product trong Shopify.</li>
+            <li>Trong MVP8, bấm nút reload để quét các URL hợp lệ từ Mockup Ads và Redirect URL; mỗi link có nút mở tab riêng. Có thể nhập thêm URL thủ công khi cần.</li>
+            <li>Bấm <b>Mở URL trong tab mới</b>. Extension chỉ mở URL http/https, không thay đổi metafield và không bật chế độ Edit.</li>
+          </ol></div></details>
         </div>
       </article>
 
