@@ -21,6 +21,7 @@
     "https://*.teeinblue.com/*",
     "http://192.168.88.4/*",
     "http://192.168.10.2/*",
+    "http://192.168.10.198/*",
     "http://Sadie.local/*"
   ],
   "optional_host_permissions": [

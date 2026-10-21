@@ -1,8 +1,10 @@
 # macOS server + shared team extension
 
-The Mac server listens on port `8787` and the extension release uses
-`http://192.168.10.2:8787` by default. `http://Sadie.local:8787` can be used
-when the team network resolves the Mac hostname.
+The Mac server listens on port `8787` and the current team share uses
+`http://192.168.10.198:8787` by default. The previous reserved address
+`http://192.168.10.2:8787` remains allowed for backward compatibility.
+`http://Sadie.local:8787` can be used when the team network resolves the Mac
+hostname.
 
 ## Enable the shared folder once on the Mac
 
@@ -18,7 +20,7 @@ last finalized extension release and is updated by the deployment script.
 
 ## Install on each team Mac/PC
 
-1. Connect to `smb://192.168.10.2/CustomallExtension` (or
+1. Connect to `smb://192.168.10.198/CustomallExtension` (or
    `smb://Sadie.local/CustomallExtension`) using the Mac sharing account.
 2. Open `chrome://extensions`, enable **Developer mode**, and choose **Load
    unpacked**.
