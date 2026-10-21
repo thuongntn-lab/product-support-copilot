@@ -800,6 +800,7 @@ function apiOriginPattern(endpoint) {
 }
 
 const DEFAULT_LARK_API_URL = "http://192.168.10.198:8787";
+const LEGACY_LARK_API_URL = "http://192.168.10.2:8787";
 const DEFAULT_LARK_API_KEY = "";
 
 async function ensureApiPermission(endpoint) {
@@ -812,10 +813,10 @@ async function ensureApiPermission(endpoint) {
 
 async function getLarkSettings() {
   const settings = await chrome.storage.local.get(["larkApiUrl", "larkApiKey"]);
+  const storedEndpoint = String(settings.larkApiUrl || "").trim().replace(/\/+$/, "");
+  const endpoint = storedEndpoint === LEGACY_LARK_API_URL ? DEFAULT_LARK_API_URL : storedEndpoint;
   return {
-    endpoint: String(settings.larkApiUrl || DEFAULT_LARK_API_URL)
-      .trim()
-      .replace(/\/+$/, ""),
+    endpoint: endpoint || DEFAULT_LARK_API_URL,
     apiKey: String(settings.larkApiKey || DEFAULT_LARK_API_KEY)
   };
 }

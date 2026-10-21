@@ -1,4 +1,5 @@
 const TELEMETRY_DEFAULT_ENDPOINT = "http://192.168.10.198:8787";
+const TELEMETRY_LEGACY_ENDPOINT = "http://192.168.10.2:8787";
 const TELEMETRY_DEFAULT_KEY = "4c0dc3b933b06f2368f1ae7fec22f2148832478aaaaf694e877ca38180fe3766";
 let lastTelemetrySentAt = 0;
 
@@ -11,7 +12,8 @@ async function sendTelemetryHeartbeat(force = false, mvp = "") {
     if (!settings.telemetryInstallationId) {
       await chrome.storage.local.set({ telemetryInstallationId: installationId });
     }
-    const endpoint = String(settings.larkApiUrl || TELEMETRY_DEFAULT_ENDPOINT).replace(/\/+$/, "");
+    const storedEndpoint = String(settings.larkApiUrl || "").replace(/\/+$/, "");
+    const endpoint = (storedEndpoint === TELEMETRY_LEGACY_ENDPOINT ? TELEMETRY_DEFAULT_ENDPOINT : storedEndpoint) || TELEMETRY_DEFAULT_ENDPOINT;
     await fetch(`${endpoint}/api/telemetry/heartbeat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": String(settings.larkApiKey || TELEMETRY_DEFAULT_KEY) },
